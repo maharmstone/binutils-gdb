@@ -421,7 +421,45 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
     return 0xffff;
   }
 
-  // FIXME - relocations?
+  if (pdb_sect->flags & SEC_RELOC) { // do relocations
+    struct internal_reloc *ir = _bfd_coff_read_internal_relocs(in_bfd, pdb_sect, FALSE, NULL, TRUE, NULL);
+    struct internal_syment *symbols;
+    asection **sectlist;
+    int sect_num;
+
+    symbols = xmalloc(sizeof(struct internal_syment) * in_bfd->tdata.coff_obj_data->raw_syment_count);
+    sectlist = xmalloc(sizeof(struct asection*) * in_bfd->tdata.coff_obj_data->raw_syment_count);
+
+    memset(sectlist, 0, sizeof(struct asection*) * in_bfd->tdata.coff_obj_data->raw_syment_count);
+
+    for (unsigned int i = 0; i < in_bfd->tdata.coff_obj_data->raw_syment_count; i++) {
+      bfd_coff_swap_sym_in (in_bfd, &((struct external_syment *)(in_bfd->tdata.coff_obj_data->external_syms))[i], &symbols[i]);
+    }
+
+    sect = in_bfd->sections;
+    sect_num = 1;
+
+    while (sect) {
+      for (unsigned int i = 0; i < in_bfd->tdata.coff_obj_data->raw_syment_count; i++) {
+	if (symbols[i].n_scnum == sect_num)
+	  sectlist[i] = sect;
+      }
+
+      sect = sect->next;
+      sect_num++;
+    }
+
+    if (!bfd_coff_relocate_section (ctx->abfd, ctx->abfd->tdata.coff_obj_data->link_info, in_bfd, pdb_sect,
+				    contents, ir, symbols, sectlist)) {
+      free(contents);
+      free(sectlist);
+      free(symbols);
+      return 0xffff;
+    }
+
+    free(sectlist);
+    free(symbols);
+  }
 
   index = ctx->num_streams;
   add_stream(ctx, NULL);
