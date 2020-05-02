@@ -860,6 +860,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
     string_map = n;
   }
 
+  *c13_lines_size = stream->length - *symbols_size;
+
   return index;
 }
 
