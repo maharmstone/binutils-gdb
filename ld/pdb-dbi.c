@@ -614,6 +614,9 @@ handle_module_checksums(uint8_t *data, uint32_t length, uint16_t *num_source_fil
 			struct pdb_string_mapping *string_map, struct pdb_source_file **source_files)
 {
   struct pdb_checksum *checksum;
+  struct pdb_source_file *last_source_file = NULL;
+
+  *source_files = NULL;
 
   checksum = (struct pdb_checksum*)data;
 
@@ -650,10 +653,16 @@ handle_module_checksums(uint8_t *data, uint32_t length, uint16_t *num_source_fil
 
       psf = (struct pdb_source_file*)xmalloc(offsetof(struct pdb_source_file, name) + str_len + 1);
 
-      psf->next = *source_files;
-      memcpy(psf->name, str, str_len + 1);
+      if (last_source_file)
+	last_source_file->next = psf;
 
-      *source_files = psf;
+      last_source_file = psf;
+
+      if (!*source_files)
+	*source_files = psf;
+
+      psf->next = NULL;
+      memcpy(psf->name, str, str_len + 1);
     }
 
     (*num_source_files)++;
