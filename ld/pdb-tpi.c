@@ -725,6 +725,58 @@ find_type_udt_src_line (struct pdb_type **ipi_types, struct pdb_type **last_ipi_
   return t->index;
 }
 
+static uint16_t
+find_type_func_id (struct pdb_type **ipi_types, struct pdb_type **last_type,
+		   uint16_t scope, uint16_t type, const char *name)
+{
+  struct pdb_type *t = *ipi_types;
+  struct pdb_func_id *func_id;
+  size_t name_len;
+
+  while (t) {
+    if (t->cv_type == LF_FUNC_ID) {
+      func_id = (struct pdb_func_id*)t->data;
+
+      if (func_id->scope == scope &&
+	  func_id->type == type &&
+	  !strcmp(func_id->name, name))
+	{
+	  return t->index;
+	}
+    }
+
+    t = t->next;
+  }
+
+  name_len = strlen(name);
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) +
+				offsetof(struct pdb_func_id, name) +
+				name_len + 1);
+
+  t->next = NULL;
+  t->index = ipi_type_index;
+  t->cv_type = LF_FUNC_ID;
+
+  func_id = (struct pdb_func_id*)t->data;
+
+  func_id->scope = scope;
+  func_id->type = type;
+  memcpy(func_id->name, name, name_len + 1);
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*ipi_types)
+    *ipi_types = t;
+
+  ipi_type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type, uint16_t mod,
 		   struct pdb_type **ipi_types, struct pdb_type **last_ipi_type,
@@ -1337,6 +1389,27 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_FUNC_ID:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint32_t scope, type;
+
+	scope = bfd_getl32(ptr2); ptr2 += sizeof(uint32_t);
+	type = bfd_getl32(ptr2); ptr2 += sizeof(uint32_t);
+
+	if (scope >= FIRST_TYPE_INDEX && scope < FIRST_TYPE_INDEX + num_entries)
+	  scope = type_list[scope - FIRST_TYPE_INDEX];
+
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+	  type = type_list[type - FIRST_TYPE_INDEX];
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] =
+	  find_type_func_id(ipi_types, last_ipi_type, scope, type,
+			      (const char *)ptr2);
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1627,6 +1700,18 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
       case LF_UDT_MOD_SRC_LINE:
 	len += 20;
       break;
+
+      case LF_FUNC_ID:
+      {
+	struct pdb_func_id *func_id = (struct pdb_func_id *)t->data;
+
+	len += 13 + strlen(func_id->name);
+
+	if (len % 4 != 0)
+	  len += 4 - (len % 4);
+
+	break;
+      }
 
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
@@ -2114,6 +2199,45 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	bfd_putl32 (pumsl->source_file, ptr); ptr += sizeof(uint32_t);
 	bfd_putl32 (pumsl->line, ptr); ptr += sizeof(uint32_t);
 	bfd_putl32 (pumsl->mod, ptr); ptr += sizeof(uint32_t);
+
+	break;
+      }
+
+      case LF_FUNC_ID: {
+	struct pdb_func_id *func_id = (struct pdb_func_id *)t->data;
+	size_t name_len = strlen (func_id->name);
+	uint16_t item_len;
+	uint8_t align;
+
+	item_len = 13 + name_len;
+
+	align = 4 - (item_len % 4);
+
+	if (align != 4)
+	  item_len += align;
+
+	bfd_putl16 (item_len - 2, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_FUNC_ID, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (func_id->scope, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (func_id->type, ptr); ptr += sizeof(uint32_t);
+
+	memcpy (ptr, func_id->name, name_len + 1);
+	ptr += name_len + 1;
+
+	if (align != 4) {
+	  if (align == 3) {
+	    *ptr = 0xf3;
+	    ptr++;
+	  }
+
+	  if (align >= 2) {
+	    *ptr = 0xf2;
+	    ptr++;
+	  }
+
+	  *ptr = 0xf1;
+	  ptr++;
+	}
 
 	break;
       }
