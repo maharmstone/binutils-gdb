@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include "libiberty.h"
 
 static uint32_t
@@ -209,6 +210,38 @@ prepare_stream_directory (struct pdb_context *ctx)
   }
 }
 
+static void
+create_pdb_info_stream (struct pdb_stream *stream, const unsigned char *guid)
+{
+  uint32_t *feature_code;
+  uint8_t *ptr;
+
+  stream->length = 28; // header
+  stream->length += sizeof(uint32_t); // named stream map length
+  stream->length += sizeof(uint32_t) * 5; // empty hash map
+  stream->length += sizeof(uint32_t); // feature code
+
+  stream->data = xmalloc(stream->length);
+  memset(stream->data, 0, stream->length);
+
+  ptr = (uint8_t*)stream->data;
+
+  bfd_putl32 (pdb_stream_version_vc70, ptr); ptr += sizeof(uint32_t); // version
+  bfd_putl32 (time(NULL), ptr); ptr += sizeof(uint32_t); // signature
+  bfd_putl32 (1, ptr); ptr += sizeof(uint32_t); // age
+
+  // guid
+  bfd_putl32 (bfd_getb32 (guid), ptr); ptr += sizeof(uint32_t);
+  bfd_putl16 (bfd_getb16 (&guid[4]), ptr); ptr += sizeof(uint16_t);
+  bfd_putl16 (bfd_getb16 (&guid[6]), ptr); ptr += sizeof(uint16_t);
+  memcpy (ptr, &guid[8], 8); ptr += 8;
+
+  // FIXME - named stream map
+
+  feature_code = (uint8_t*)stream->data + stream->length - sizeof(uint32_t);
+  bfd_putl32 (pdb_feature_code_vc110, feature_code);
+}
+
 void
 create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 {
@@ -226,9 +259,14 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   // FIXME - write streams etc.
 
+  add_stream(&ctx); // old directory (FIXME?)
+
   add_stream(&ctx);
-  ctx.first_stream->length = 4; // TESTING
-  ctx.first_stream->data = strdup("test");
+  create_pdb_info_stream(ctx.last_stream, guid);
+
+  // FIXME - TPI stream
+  // FIXME - DBI stream
+  // FIXME - IPI stream
 
   prepare_stream_directory(&ctx);
 

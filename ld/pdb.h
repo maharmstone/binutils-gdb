@@ -56,6 +56,26 @@ struct pdb_context {
   char *directory;
 };
 
+enum pdb_stream_version {
+  pdb_stream_version_vc2 = 19941610,
+  pdb_stream_version_vc4 = 19950623,
+  pdb_stream_version_vc41 = 19950814,
+  pdb_stream_version_vc50 = 19960307,
+  pdb_stream_version_vc98 = 19970604,
+  pdb_stream_version_vc70dep = 19990604,
+  pdb_stream_version_vc70 = 20000404,
+  pdb_stream_version_vc80 = 20030901,
+  pdb_stream_version_vc110 = 20091201,
+  pdb_stream_version_vc140 = 20140508,
+};
+
+enum pdb_feature_code {
+  pdb_feature_code_vc110 = 20091201,
+  pdb_feature_code_vc140 = 20140508,
+  pdb_feature_code_notypemerge = 0x4d544f4e,
+  pdb_feature_code_minimaldebuginfo = 0x494e494d,
+};
+
 // pdb.c
 void create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid);
 
