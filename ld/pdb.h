@@ -47,6 +47,7 @@ struct pdb_stream {
 };
 
 struct pdb_context {
+  bfd *abfd;
   int fd;
   uint32_t free_block_map;
   uint32_t num_blocks;
@@ -106,9 +107,45 @@ struct tpi_stream_header {
 
 static_assert(sizeof(struct tpi_stream_header) == 0x38, "tpi_stream_header has incorrect size");
 
+enum dbi_stream_version {
+  dbi_stream_version_vc41 = 930803,
+  dbi_stream_version_v50 = 19960307,
+  dbi_stream_version_v60 = 19970606,
+  dbi_stream_version_v70 = 19990903,
+  dbi_stream_version_v110 = 20091201
+};
+
+struct dbi_stream_header {
+  int32_t version_signature;
+  uint32_t version_header;
+  uint32_t age;
+  uint16_t global_stream_index;
+  uint16_t build_number;
+  uint16_t public_stream_index;
+  uint16_t pdb_dll_version;
+  uint16_t sym_record_stream;
+  uint16_t pdb_dll_rbld;
+  int32_t mod_info_size;
+  int32_t section_contribution_size;
+  int32_t section_map_size;
+  int32_t source_info_size;
+  int32_t type_server_map_size;
+  uint32_t mfc_type_server_index;
+  int32_t optional_dbg_header_size;
+  int32_t ec_substream_size;
+  uint16_t flags;
+  uint16_t machine;
+  uint32_t padding;
+};
+
+static_assert(sizeof(struct dbi_stream_header) == 0x40, "dbi_stream_header has incorrect size");
+
 // pdb.c
 void create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid);
 struct pdb_stream *add_stream (struct pdb_context *ctx);
+
+// pdb-dbi.c
+void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
 
 // pdb-tpi.c
 void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream);

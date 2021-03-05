@@ -251,6 +251,7 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   memset(&ctx, 0, sizeof(struct pdb_context));
 
+  ctx.abfd = abfd;
   ctx.fd = open (pdb_path, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 
   if (ctx.fd == -1)
@@ -279,6 +280,8 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
   create_pdb_info_stream(pdb_info_stream, guid);
 
   create_tpi_stream(&ctx, tpi_stream);
+
+  create_dbi_stream(&ctx, dbi_stream);
 
   prepare_stream_directory(&ctx);
 
