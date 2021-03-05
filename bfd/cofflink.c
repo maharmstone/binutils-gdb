@@ -3099,6 +3099,30 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 	    }
 	}
 
+      if (output_bfd->arch_info->arch == bfd_arch_i386 && howto->type == R_SECTION) {
+	uint16_t sect = 0, i = 1;
+	asection *output_sec = sections[symndx]->output_section;
+	asection *s;
+
+	s = output_bfd->sections;
+	while (s)
+	  {
+	    if (s == output_sec)
+	      {
+		sect = i;
+		break;
+	      }
+
+	    i++;
+	    s = s->next;
+	  }
+
+	bfd_putl16(sect,
+		   contents + rel->r_vaddr - input_section->vma);
+
+	continue;
+      }
+
       rstat = _bfd_final_link_relocate (howto, input_bfd, input_section,
 					contents,
 					rel->r_vaddr - input_section->vma,

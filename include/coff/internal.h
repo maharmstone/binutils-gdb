@@ -691,6 +691,7 @@ struct internal_reloc
 #define R_REL24          5
 #define R_DIR32 	 6
 #define R_IMAGEBASE	 7
+#define R_SECTION	10
 #define R_SECREL32	11
 #define R_RELBYTE	15
 #define R_RELWORD	16

@@ -50,6 +50,8 @@ typedef enum {
   O_symbol,
   /* X_add_symbol + X_add_number - the base address of the image.  */
   O_symbol_rva,
+  /* The section index of X_add_symbol.  */
+  O_secidx,
   /* A register (X_add_number is register number).  */
   O_register,
   /* A big value.  If X_add_number is negative or 0, the value is in

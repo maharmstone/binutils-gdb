@@ -203,7 +203,7 @@ static bfd_boolean
 in_reloc_p (bfd *abfd ATTRIBUTE_UNUSED, reloc_howto_type *howto)
 {
   return ! howto->pc_relative && howto->type != R_AMD64_IMAGEBASE
-	 && howto->type != R_AMD64_SECREL;
+	 && howto->type != R_AMD64_SECREL && howto->type != R_AMD64_SECTION;
 }
 #endif /* COFF_WITH_PE */
 
@@ -334,8 +334,21 @@ static reloc_howto_type howto_table[] =
 	 0xffffffff,		/* src_mask */
 	 0xffffffff,		/* dst_mask */
 	 PCRELOFFSET),		/* pcrel_offset */
-  EMPTY_HOWTO (10), /* R_AMD64_SECTION 10  */
 #if defined(COFF_WITH_PE)
+  /* 16-bit word section relocation (10).  */
+  HOWTO (R_AMD64_SECTION,	/* type */
+	 0,			/* rightshift */
+	 1,			/* size (0 = byte, 1 = short, 2 = long) */
+	 16,			/* bitsize */
+	 FALSE,			/* pc_relative */
+	 0,			/* bitpos */
+	 complain_overflow_bitfield, /* complain_on_overflow */
+	 coff_amd64_reloc,	/* special_function */
+	 "IMAGE_REL_AMD64_SECTION", /* name */
+	 TRUE,			/* partial_inplace */
+	 0x0000ffff,		/* src_mask */
+	 0x0000ffff,		/* dst_mask */
+	 TRUE),
   /* 32-bit longword section relative relocation (11).  */
   HOWTO (R_AMD64_SECREL,	/* type */
 	 0,			/* rightshift */
@@ -351,6 +364,7 @@ static reloc_howto_type howto_table[] =
 	 0xffffffff,		/* dst_mask */
 	 TRUE),			/* pcrel_offset */
 #else
+  EMPTY_HOWTO (10),
   EMPTY_HOWTO (11),
 #endif
   EMPTY_HOWTO (12),
@@ -694,6 +708,8 @@ coff_amd64_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED, bfd_reloc_code_real_ty
 #if defined(COFF_WITH_PE)
     case BFD_RELOC_32_SECREL:
       return howto_table + R_AMD64_SECREL;
+    case BFD_RELOC_16_SECIDX:
+      return howto_table + R_AMD64_SECTION;
 #endif
     default:
       BFD_FAIL ();

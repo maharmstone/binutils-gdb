@@ -191,7 +191,7 @@ static bfd_boolean in_reloc_p (bfd * abfd ATTRIBUTE_UNUSED,
 			       reloc_howto_type *howto)
 {
   return ! howto->pc_relative && howto->type != R_IMAGEBASE
-	 && howto->type != R_SECREL32;
+	 && howto->type != R_SECREL32 && howto->type != R_SECTION;
 }
 #endif /* COFF_WITH_PE */
 
@@ -236,8 +236,21 @@ static reloc_howto_type howto_table[] =
 	 FALSE),		/* pcrel_offset */
   EMPTY_HOWTO (010),
   EMPTY_HOWTO (011),
-  EMPTY_HOWTO (012),
 #ifdef COFF_WITH_PE
+  /* 16-bit word section relocation (012).  */
+  HOWTO (R_SECTION,		/* type */
+	 0,			/* rightshift */
+	 1,			/* size (0 = byte, 1 = short, 2 = long) */
+	 16,			/* bitsize */
+	 FALSE,			/* pc_relative */
+	 0,			/* bitpos */
+	 complain_overflow_bitfield, /* complain_on_overflow */
+	 coff_i386_reloc,	/* special_function */
+	 "secidx",		/* name */
+	 TRUE,			/* partial_inplace */
+	 0xffffffff,		/* src_mask */
+	 0xffffffff,		/* dst_mask */
+	 TRUE),			/* pcrel_offset */
   /* 32-bit longword section relative relocation (013).  */
   HOWTO (R_SECREL32,		/* type */
 	 0,			/* rightshift */
@@ -253,6 +266,7 @@ static reloc_howto_type howto_table[] =
 	 0xffffffff,		/* dst_mask */
 	 TRUE),			/* pcrel_offset */
 #else
+  EMPTY_HOWTO (012),
   EMPTY_HOWTO (013),
 #endif
   EMPTY_HOWTO (014),
@@ -573,6 +587,8 @@ coff_i386_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
 #ifdef COFF_WITH_PE
     case BFD_RELOC_32_SECREL:
       return howto_table + R_SECREL32;
+    case BFD_RELOC_16_SECIDX:
+      return howto_table + R_SECTION;
 #endif
     default:
       BFD_FAIL ();
