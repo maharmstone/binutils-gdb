@@ -1181,9 +1181,11 @@ _bfd_XXi_slurp_codeview_record (bfd * abfd, file_ptr where, unsigned long length
 }
 
 unsigned int
-_bfd_XXi_write_codeview_record (bfd * abfd, file_ptr where, CODEVIEW_INFO *cvinfo)
+_bfd_XXi_write_codeview_record (bfd * abfd, file_ptr where, CODEVIEW_INFO *cvinfo,
+                                const char *pdb)
 {
-  const bfd_size_type size = sizeof (CV_INFO_PDB70) + 1;
+  size_t pdb_len = pdb ? strlen(pdb) : 0;
+  const bfd_size_type size = sizeof (CV_INFO_PDB70) + pdb_len + 1;
   bfd_size_type written;
   CV_INFO_PDB70 *cvinfo70;
   char * buffer;
@@ -1206,7 +1208,11 @@ _bfd_XXi_write_codeview_record (bfd * abfd, file_ptr where, CODEVIEW_INFO *cvinf
   memcpy (&(cvinfo70->Signature[8]), &(cvinfo->Signature[8]), 8);
 
   H_PUT_32 (abfd, cvinfo->Age, cvinfo70->Age);
-  cvinfo70->PdbFileName[0] = '\0';
+
+  if (pdb == NULL)
+    cvinfo70->PdbFileName[0] = '\0';
+  else
+    memcpy(cvinfo70->PdbFileName, pdb, pdb_len + 1);
 
   written = bfd_bwrite (buffer, size, abfd);
 

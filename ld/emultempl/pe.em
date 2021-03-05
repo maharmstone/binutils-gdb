@@ -81,6 +81,7 @@ fragment <<EOF
 #include "deffile.h"
 #include "pe-dll.h"
 #include "safe-ctype.h"
+#include "pdb.h"
 
 /* Permit the emulation parameters to override the default section
    alignment by setting OVERRIDE_SECTION_ALIGNMENT.  FIXME: This makes
@@ -135,6 +136,8 @@ static lang_assignment_statement_type *image_base_statement = 0;
 static unsigned short pe_dll_characteristics = DEFAULT_DLL_CHARACTERISTICS;
 static bfd_boolean insert_timestamp = TRUE;
 static const char *emit_build_id;
+static int pdb;
+static char *pdb_name, *pdb_path;
 
 #ifdef DLL_SUPPORT
 static int pe_enable_stdcall_fixup = -1; /* 0=disable 1=enable.  */
@@ -275,8 +278,9 @@ fragment <<EOF
 #define OPTION_BUILD_ID			(OPTION_NO_INSERT_TIMESTAMP + 1)
 #define OPTION_ENABLE_RELOC_SECTION	(OPTION_BUILD_ID + 1)
 #define OPTION_DISABLE_RELOC_SECTION	(OPTION_ENABLE_RELOC_SECTION + 1)
+#define OPTION_PDB	(OPTION_DISABLE_RELOC_SECTION + 1)
 /* DLL Characteristics flags.  */
-#define OPTION_DISABLE_DYNAMIC_BASE	(OPTION_DISABLE_RELOC_SECTION + 1)
+#define OPTION_DISABLE_DYNAMIC_BASE	(OPTION_PDB + 1)
 #define OPTION_DISABLE_FORCE_INTEGRITY	(OPTION_DISABLE_DYNAMIC_BASE + 1)
 #define OPTION_DISABLE_NX_COMPAT	(OPTION_DISABLE_FORCE_INTEGRITY + 1)
 #define OPTION_DISABLE_NO_ISOLATION	(OPTION_DISABLE_NX_COMPAT + 1)
@@ -374,6 +378,7 @@ gld${EMULATION_NAME}_add_options
     {"build-id", optional_argument, NULL, OPTION_BUILD_ID},
     {"enable-reloc-section", no_argument, NULL, OPTION_ENABLE_RELOC_SECTION},
     {"disable-reloc-section", no_argument, NULL, OPTION_DISABLE_RELOC_SECTION},
+    {"pdb", required_argument, NULL, OPTION_PDB},
     {NULL, no_argument, NULL, 0}
   };
 
@@ -521,6 +526,7 @@ gld_${EMULATION_NAME}_list_options (FILE *file)
   fprintf (file, _("  --[disable-]wdmdriver              Driver uses the WDM model\n"));
   fprintf (file, _("  --[disable-]tsaware                Image is Terminal Server aware\n"));
   fprintf (file, _("  --build-id[=STYLE]                 Generate build ID\n"));
+  fprintf (file, _("  --pdb=<file>                       Generate PDB file\n"));
 }
 
 
@@ -944,6 +950,13 @@ gld${EMULATION_NAME}_handle_option (int optc)
       if (strcmp (optarg, "none"))
 	emit_build_id = xstrdup (optarg);
       break;
+    case OPTION_PDB:
+      if (emit_build_id == NULL)
+	emit_build_id = xstrdup (DEFAULT_BUILD_ID_STYLE);
+      pdb = 1;
+      if (optarg && optarg[0] != 0)
+	pdb_name = xstrdup (optarg);
+      break;
     }
 
   /*  Set DLLCharacteristics bits  */
@@ -1291,7 +1304,7 @@ write_build_id (bfd *abfd)
   idd.MajorVersion = 0;
   idd.MinorVersion = 0;
   idd.Type = PE_IMAGE_DEBUG_TYPE_CODEVIEW;
-  idd.SizeOfData = sizeof (CV_INFO_PDB70) + 1;
+  idd.SizeOfData = sizeof (CV_INFO_PDB70) + (pdb_name ? strlen(pdb_name) : 0) + 1;
   idd.AddressOfRawData = asec->vma - ib + link_order->offset
     + sizeof (struct external_IMAGE_DEBUG_DIRECTORY);
   idd.PointerToRawData = asec->filepos + link_order->offset
@@ -1307,6 +1320,9 @@ write_build_id (bfd *abfd)
   if (bfd_bwrite (contents, size, abfd) != size)
     return 0;
 
+  if (pdb)
+    create_pdb_file (abfd, pdb_path, build_id);
+
   /* Construct the CodeView record.  */
   CODEVIEW_INFO cvinfo;
   cvinfo.CVSignature = CVINFO_PDB70_CVSIGNATURE;
@@ -1320,7 +1336,7 @@ write_build_id (bfd *abfd)
   free (build_id);
 
   /* Write the codeview record.  */
-  if (_bfd_XXi_write_codeview_record (abfd, idd.PointerToRawData, &cvinfo) == 0)
+  if (_bfd_XXi_write_codeview_record (abfd, idd.PointerToRawData, &cvinfo, pdb_name) == 0)
     return 0;
 
   /* Record the location of the debug directory in the data directory.  */
@@ -1357,10 +1373,10 @@ setup_build_id (bfd *ibfd)
 
       /* Section is a fixed size:
 	 One IMAGE_DEBUG_DIRECTORY entry, of type IMAGE_DEBUG_TYPE_CODEVIEW,
-	 pointing at a CV_INFO_PDB70 record containing the build-id, with a
-	 null byte for PdbFileName.  */
+	 pointing at a CV_INFO_PDB70 record containing the build-id, followed
+	 by PdbFileName if relevant.  */
       s->size = sizeof (struct external_IMAGE_DEBUG_DIRECTORY)
-	+ sizeof (CV_INFO_PDB70) + 1;
+	+ sizeof (CV_INFO_PDB70) + (pdb_name ? strlen(pdb_name) : 0) + 1;
 
       return TRUE;
     }
@@ -1391,6 +1407,46 @@ gld_${EMULATION_NAME}_after_open (void)
 	printf ("*%s\n", bfd_get_filename (a));
     }
 #endif
+
+  if (pdb)
+    {
+      char path[FILENAME_MAX];
+
+      getcwd(path, sizeof(path));
+      strcat(path, "/");
+
+      if (!pdb_name)
+	{
+	  const char *base = lbasename(link_info.output_bfd->filename);
+	  size_t len = strlen(base);
+	  static const char suffix[] = ".pdb";
+
+	  while (len > 0 && base[len] != '.') {
+	    len--;
+	  }
+
+	  if (len == 0)
+	    len = strlen(base);
+
+	  pdb_name = xmalloc(len + sizeof(suffix));
+	  memcpy(pdb_name, base, len);
+	  memcpy(pdb_name + len, suffix, sizeof(suffix));
+
+	  strcat(path, pdb_name);
+	}
+      else
+	{
+	  char *s = pdb_name;
+
+	  strcat (path, pdb_name);
+
+	  pdb_name = xstrdup (lbasename (pdb_name));
+
+	  free (s);
+	}
+
+      pdb_path = xstrdup (path);
+    }
 
   if (emit_build_id != NULL)
     {
