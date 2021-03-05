@@ -23,6 +23,29 @@
 #include "sysdep.h"
 #include "bfd.h"
 
+#define PDB_MAGIC "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\0\0"
+#define PDB_BLOCK_SIZE 0x1000
+
+#define BYTES_TO_PAGES(b) (((b) + PDB_BLOCK_SIZE - 1) / PDB_BLOCK_SIZE)
+
+struct pdb_superblock {
+  char magic[sizeof(PDB_MAGIC)];
+  uint32_t block_size;
+  uint32_t free_block_map;
+  uint32_t num_blocks;
+  uint32_t num_directory_bytes;
+  uint32_t unknown;
+  uint32_t block_map_addr;
+};
+
+struct pdb_context {
+  int fd;
+  uint32_t free_block_map;
+  uint32_t num_blocks;
+  uint32_t num_directory_bytes;
+  uint32_t block_map_addr;
+};
+
 // pdb.c
 void create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid);
 
