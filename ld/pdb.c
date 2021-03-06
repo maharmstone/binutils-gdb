@@ -246,6 +246,7 @@ void
 create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 {
   struct pdb_context ctx;
+  struct pdb_stream *pdb_info_stream, *tpi_stream, *dbi_stream, *ipi_stream;
   struct pdb_superblock super;
 
   memset(&ctx, 0, sizeof(struct pdb_context));
@@ -262,11 +263,20 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
   add_stream(&ctx); // old directory (FIXME?)
 
   add_stream(&ctx);
-  create_pdb_info_stream(ctx.last_stream, guid);
+  pdb_info_stream = ctx.last_stream;
 
-  // FIXME - TPI stream
-  // FIXME - DBI stream
-  // FIXME - IPI stream
+  add_stream(&ctx);
+  tpi_stream = ctx.last_stream;
+
+  add_stream(&ctx);
+  dbi_stream = ctx.last_stream;
+
+  add_stream(&ctx);
+  ipi_stream = ctx.last_stream;
+
+  // FIXME - named streams?
+
+  create_pdb_info_stream(pdb_info_stream, guid);
 
   prepare_stream_directory(&ctx);
 
