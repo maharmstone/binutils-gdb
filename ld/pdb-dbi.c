@@ -690,6 +690,22 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
 
 	break;
       }
+
+      case S_BUILDINFO:
+      {
+	uint32_t id;
+
+	// BUILDINFOSYM in cvdump
+
+	id = bfd_getl32(data + 4);
+
+	if (id >= FIRST_TYPE_INDEX && id < FIRST_TYPE_INDEX + mod_type_info->num_entries) {
+	  id = mod_type_info->type_list[id - FIRST_TYPE_INDEX];
+	  bfd_putl32(id, data + 4);
+	}
+
+	break;
+      }
     }
 
     if (length <= cv_length + sizeof(uint16_t))

@@ -58,6 +58,7 @@
 #define S_LOCAL				0x113e
 #define S_LPROC32_ID			0x1146
 #define S_GPROC32_ID			0x1147
+#define S_BUILDINFO			0x114c
 #define S_LPROC32_DPC			0x1155
 #define S_LPROC32_DPC_ID		0x1156
 #define LF_ARGLIST			0x1201
