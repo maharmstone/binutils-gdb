@@ -123,7 +123,7 @@ write_free_page_map (struct pdb_context *ctx)
     einfo (_("%F%P: error writing to PDB file: %E\n"));
 }
 
-static struct pdb_stream *
+struct pdb_stream *
 add_stream (struct pdb_context *ctx)
 {
   struct pdb_stream *stream = xmalloc(sizeof(struct pdb_stream));
@@ -238,7 +238,7 @@ create_pdb_info_stream (struct pdb_stream *stream, const unsigned char *guid)
 
   // FIXME - named stream map
 
-  feature_code = (uint8_t*)stream->data + stream->length - sizeof(uint32_t);
+  feature_code = (uint32_t*)((uint8_t*)stream->data + stream->length - sizeof(uint32_t));
   bfd_putl32 (pdb_feature_code_vc110, feature_code);
 }
 
@@ -277,6 +277,8 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
   // FIXME - named streams?
 
   create_pdb_info_stream(pdb_info_stream, guid);
+
+  create_tpi_stream(&ctx, tpi_stream);
 
   prepare_stream_directory(&ctx);
 

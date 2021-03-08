@@ -22,9 +22,11 @@
 
 #include "sysdep.h"
 #include "bfd.h"
+#include <assert.h>
 
 #define PDB_MAGIC "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\0\0"
 #define PDB_BLOCK_SIZE 0x1000
+#define FIRST_TYPE_INDEX 0x1000
 
 #define BYTES_TO_PAGES(b) (((b) + PDB_BLOCK_SIZE - 1) / PDB_BLOCK_SIZE)
 
@@ -76,7 +78,39 @@ enum pdb_feature_code {
   pdb_feature_code_minimaldebuginfo = 0x494e494d,
 };
 
+enum tpi_stream_version {
+  tpi_stream_version_v40 = 19950410,
+  tpi_stream_version_v41 = 19951122,
+  tpi_stream_version_v50 = 19961031,
+  tpi_stream_version_v70 = 19990903,
+  tpi_stream_version_v80 = 20040203,
+};
+
+struct tpi_stream_header {
+  uint32_t version;
+  uint32_t header_size;
+  uint32_t type_index_begin;
+  uint32_t type_index_end;
+  uint32_t type_record_bytes;
+  uint16_t hash_stream_index;
+  uint16_t hash_aux_stream_index;
+  uint32_t hash_key_size;
+  uint32_t num_hash_buckets;
+  int32_t hash_value_buffer_offset;
+  uint32_t hash_value_buffer_length;
+  int32_t index_offset_buffer_offset;
+  uint32_t index_offset_buffer_length;
+  int32_t hash_adj_buffer_offset;
+  uint32_t hash_adj_buffer_length;
+};
+
+static_assert(sizeof(struct tpi_stream_header) == 0x38, "tpi_stream_header has incorrect size");
+
 // pdb.c
 void create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid);
+struct pdb_stream *add_stream (struct pdb_context *ctx);
+
+// pdb-tpi.c
+void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
 
 #endif /* _PDB_H */
