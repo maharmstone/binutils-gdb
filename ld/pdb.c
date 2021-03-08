@@ -31,6 +31,21 @@
 #include <stdlib.h>
 #include "libiberty.h"
 
+static uint32_t
+allocate_block (struct pdb_context *ctx)
+{
+  uint32_t block = ctx->num_blocks;
+
+  // FIXME - avoid free page map
+
+  ctx->num_blocks++;
+
+  if (ftruncate(ctx->fd, PDB_BLOCK_SIZE * ctx->num_blocks))
+    einfo (_("%F%P: error extending PDB file: %E\n"));
+
+  return block;
+}
+
 static void
 write_stream_directory (struct pdb_context *ctx, void *directory)
 {
@@ -42,14 +57,9 @@ write_stream_directory (struct pdb_context *ctx, void *directory)
 
   for (unsigned int i = 0; i < num_directory_pages; i++) {
     ssize_t to_write = left < PDB_BLOCK_SIZE ? left : PDB_BLOCK_SIZE;
-    uint32_t block = ctx->num_blocks;
+    uint32_t block = allocate_block(ctx);
 
     bfd_putl32(block, &block_map[i]);
-
-    ctx->num_blocks++;
-
-    if (ftruncate(ctx->fd, PDB_BLOCK_SIZE * ctx->num_blocks))
-      einfo (_("%F%P: error extending PDB file: %E\n"));
 
     lseek(ctx->fd, block * PDB_BLOCK_SIZE, SEEK_SET);
     if (write (ctx->fd, directory, to_write) != to_write)
@@ -61,11 +71,7 @@ write_stream_directory (struct pdb_context *ctx, void *directory)
 
   /* Allocate and write stream directory block map */
 
-  ctx->block_map_addr = ctx->num_blocks;
-  ctx->num_blocks++;
-
-  if (ftruncate(ctx->fd, PDB_BLOCK_SIZE * ctx->num_blocks))
-    einfo (_("%F%P: error extending PDB file: %E\n"));
+  ctx->block_map_addr = allocate_block(ctx);
 
   lseek(ctx->fd, ctx->block_map_addr * PDB_BLOCK_SIZE, SEEK_SET);
 
@@ -75,6 +81,44 @@ write_stream_directory (struct pdb_context *ctx, void *directory)
   }
 
   free(block_map);
+}
+
+static void
+write_free_page_map (struct pdb_context *ctx)
+{
+  uint32_t map[PDB_BLOCK_SIZE / sizeof(uint32_t)], *ptr;
+  uint32_t blocks = ctx->num_blocks;
+
+  // FIXME - handle large free page maps
+
+  memset(map, 0xff, PDB_BLOCK_SIZE);
+
+  ptr = map;
+  while (blocks > 0) {
+    if (blocks >= 32) {
+      bfd_putl32(0, ptr);
+      ptr++;
+      blocks -= 32;
+    } else {
+      uint32_t bit = 1;
+      uint32_t val = bfd_getl32(ptr);
+
+      do {
+	val &= ~bit;
+	bit <<= 1;
+	blocks--;
+      } while (blocks > 0);
+
+      bfd_putl32(val, ptr);
+
+      break;
+    }
+  }
+
+  lseek(ctx->fd, ctx->free_block_map * PDB_BLOCK_SIZE, SEEK_SET);
+
+  if (write (ctx->fd, map, PDB_BLOCK_SIZE) != PDB_BLOCK_SIZE)
+    einfo (_("%F%P: error writing to PDB file: %E\n"));
 }
 
 void
@@ -103,6 +147,11 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   write_stream_directory(&ctx, directory);
 
+  free(directory);
+
+  ctx.free_block_map = 1;
+  write_free_page_map(&ctx);
+
   /* Write superblock */
   memcpy(super.magic, PDB_MAGIC, sizeof(PDB_MAGIC));
   bfd_putl32(PDB_BLOCK_SIZE, &super.block_size);
@@ -111,7 +160,6 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
   bfd_putl32(ctx.num_directory_bytes, &super.num_directory_bytes);
   bfd_putl32(0, &super.unknown);
   bfd_putl32(ctx.block_map_addr, &super.block_map_addr);
-  // FIXME - free_block_map
 
   lseek(ctx.fd, 0, SEEK_SET);
 
