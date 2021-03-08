@@ -38,12 +38,22 @@ struct pdb_superblock {
   uint32_t block_map_addr;
 };
 
+struct pdb_stream {
+  struct pdb_stream *next;
+  uint32_t length;
+  void *data;
+};
+
 struct pdb_context {
   int fd;
   uint32_t free_block_map;
   uint32_t num_blocks;
   uint32_t num_directory_bytes;
   uint32_t block_map_addr;
+  struct pdb_stream *first_stream;
+  struct pdb_stream *last_stream;
+  unsigned int num_streams;
+  char *directory;
 };
 
 // pdb.c

@@ -47,11 +47,12 @@ allocate_block (struct pdb_context *ctx)
 }
 
 static void
-write_stream_directory (struct pdb_context *ctx, void *directory)
+write_stream_directory (struct pdb_context *ctx)
 {
   uint32_t num_directory_pages = BYTES_TO_PAGES(ctx->num_directory_bytes);
   uint32_t *block_map = xmalloc(sizeof(uint32_t) * num_directory_pages);
   uint32_t left = ctx->num_directory_bytes;
+  void *directory = ctx->directory;
 
   /* Write stream directory */
 
@@ -121,11 +122,97 @@ write_free_page_map (struct pdb_context *ctx)
     einfo (_("%F%P: error writing to PDB file: %E\n"));
 }
 
+static struct pdb_stream *
+add_stream (struct pdb_context *ctx)
+{
+  struct pdb_stream *stream = xmalloc(sizeof(struct pdb_stream));
+
+  memset(stream, 0, sizeof(struct pdb_stream));
+
+  if (ctx->last_stream)
+    ctx->last_stream->next = stream;
+
+  ctx->last_stream = stream;
+
+  if (!ctx->first_stream)
+    ctx->first_stream = stream;
+
+  ctx->num_streams++;
+
+  return stream;
+}
+
+static void
+prepare_stream_directory (struct pdb_context *ctx)
+{
+  struct pdb_stream *stream;
+  uint32_t *sizes, *blocks;
+
+  ctx->num_directory_bytes = sizeof(uint32_t) * (ctx->num_streams + 1);
+
+  stream = ctx->first_stream;
+  while (stream) {
+    uint32_t pages = BYTES_TO_PAGES(stream->length);
+
+    ctx->num_directory_bytes += pages * sizeof(uint32_t);
+
+    stream = stream->next;
+  }
+
+  ctx->directory = xmalloc(ctx->num_directory_bytes);
+  bfd_putl32(ctx->num_streams, ctx->directory);
+
+  sizes = ((uint32_t*)ctx->directory) + 1;
+  blocks = &sizes[ctx->num_streams];
+
+  stream = ctx->first_stream;
+  while (stream) {
+    bfd_putl32(stream->length, sizes);
+    sizes++;
+
+    if (stream->length > 0) {
+      uint32_t length = stream->length;
+      uint8_t *buf = stream->data;
+
+      while (length > 0) {
+	uint32_t block = allocate_block(ctx);
+	ssize_t to_write = length < PDB_BLOCK_SIZE ? length : PDB_BLOCK_SIZE;
+
+	lseek(ctx->fd, block * PDB_BLOCK_SIZE, SEEK_SET);
+	if (write (ctx->fd, buf, to_write) != to_write)
+	  einfo (_("%F%P: error writing to PDB file: %E\n"));
+
+	bfd_putl32(block, blocks);
+	blocks++;
+
+	if (length <= PDB_BLOCK_SIZE)
+	  break;
+
+	length -= PDB_BLOCK_SIZE;
+	buf += PDB_BLOCK_SIZE;
+      }
+    }
+
+    stream = stream->next;
+  }
+
+  // FIXME - return error if directory would contain too many blocks for one page
+
+  while (ctx->first_stream) {
+    stream = ctx->first_stream->next;
+
+    if (ctx->first_stream->data)
+      free(ctx->first_stream->data);
+
+    free(ctx->first_stream);
+    ctx->first_stream = stream;
+  }
+}
+
 void
 create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 {
   struct pdb_context ctx;
-  char *directory;
   struct pdb_superblock super;
 
   memset(&ctx, 0, sizeof(struct pdb_context));
@@ -139,15 +226,15 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   // FIXME - write streams etc.
 
-  // FIXME - prepare stream directory
-  directory = strdup("test");
-  ctx.num_directory_bytes = 4;
+  add_stream(&ctx);
+  ctx.first_stream->length = 4; // TESTING
+  ctx.first_stream->data = strdup("test");
 
-  // FIXME - return error if directory would contain too many blocks for one page
+  prepare_stream_directory(&ctx);
 
-  write_stream_directory(&ctx, directory);
+  write_stream_directory(&ctx);
 
-  free(directory);
+  free(ctx.directory);
 
   ctx.free_block_map = 1;
   write_free_page_map(&ctx);
