@@ -350,7 +350,7 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 void
 create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
-		   struct pdb_mod_type_info *type_info)
+		   struct pdb_stream *ipi_stream, struct pdb_mod_type_info *type_info)
 {
   bfd *in_bfd;
   struct pdb_type *types = NULL, *last_type = NULL;
@@ -379,4 +379,6 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
 
     types = n;
   }
+
+  create_type_stream(ctx, ipi_stream, NULL);
 }

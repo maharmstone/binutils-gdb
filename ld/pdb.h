@@ -337,6 +337,6 @@ void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
 
 // pdb-tpi.c
 void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
-			struct pdb_mod_type_info *type_info);
+			struct pdb_stream *ipi_stream, struct pdb_mod_type_info *type_info);
 
 #endif /* _PDB_H */

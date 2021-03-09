@@ -571,7 +571,7 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   type_info = xmalloc(num_modules * sizeof(struct pdb_mod_type_info));
 
-  create_tpi_stream(&ctx, tpi_stream, type_info);
+  create_tpi_stream(&ctx, tpi_stream, ipi_stream, type_info);
 
   create_dbi_stream(&ctx, dbi_stream);
 
