@@ -19,8 +19,6 @@
    MA 02110-1301, USA.  */
 
 #include "pdb.h"
-#include "ld.h"
-#include "ldmisc.h"
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -31,6 +29,12 @@
 #include <stdlib.h>
 #include <time.h>
 #include "libiberty.h"
+#include "coff/i386.h"
+#include "coff/external.h"
+#include "coff/internal.h"
+#include "libcoff.h"
+#include "ld.h"
+#include "ldmisc.h"
 
 uint32_t
 calc_hash(const uint8_t* data, size_t len) {
@@ -519,7 +523,20 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 {
   struct pdb_context ctx;
   struct pdb_stream *pdb_info_stream, *tpi_stream, *dbi_stream, *ipi_stream;
+  unsigned int num_modules = 0;
+  bfd *in_bfd;
+  struct pdb_mod_type_info *type_info;
   struct pdb_superblock super;
+
+  in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
+
+  while (in_bfd) {
+    num_modules++;
+    in_bfd = in_bfd->link.next;
+  }
+
+  if (num_modules == 0)
+    return;
 
   memset(&ctx, 0, sizeof(struct pdb_context));
 
@@ -552,9 +569,13 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   create_pdb_info_stream(&ctx, pdb_info_stream, guid);
 
-  create_tpi_stream(&ctx, tpi_stream);
+  type_info = xmalloc(num_modules * sizeof(struct pdb_mod_type_info));
+
+  create_tpi_stream(&ctx, tpi_stream, type_info);
 
   create_dbi_stream(&ctx, dbi_stream);
+
+  free(type_info);
 
   prepare_stream_directory(&ctx);
 

@@ -309,6 +309,11 @@ struct codeview_property { // CV_prop_t in cvdump
   };
 };
 
+struct pdb_mod_type_info {
+  uint16_t offset;
+  unsigned int num_entries;
+};
+
 struct pdb_subsection {
   uint32_t type;
   uint32_t length;
@@ -331,6 +336,7 @@ void free_hash_list (struct pdb_hash_list *list);
 void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
 
 // pdb-tpi.c
-void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
+void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
+			struct pdb_mod_type_info *type_info);
 
 #endif /* _PDB_H */

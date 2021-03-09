@@ -282,7 +282,8 @@ create_type_hash_stream (struct pdb_stream *stream, unsigned int num_types,
 }
 
 void
-create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
+create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
+		   struct pdb_mod_type_info *type_info)
 {
   struct tpi_stream_header *h;
   bfd *in_bfd;
@@ -292,13 +293,20 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   uint32_t hash_value_buffer_length, index_offset_buffer_length;
   struct pdb_stream *hash_stream;
   unsigned int num_types;
+  struct pdb_mod_type_info *mod_type_info;
 
   in_bfd = ctx->abfd->tdata.coff_obj_data->link_info->input_bfds;
+  mod_type_info = type_info;
 
   while (in_bfd) {
+    mod_type_info->offset = type_index - FIRST_TYPE_INDEX;
+
     load_module_types(in_bfd);
 
+    mod_type_info->num_entries = type_index - mod_type_info->offset - FIRST_TYPE_INDEX;
+
     in_bfd = in_bfd->link.next;
+    mod_type_info++;
   }
 
   len = 0;
