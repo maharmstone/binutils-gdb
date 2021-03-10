@@ -28,6 +28,8 @@
 #define PDB_BLOCK_SIZE 0x1000
 #define FIRST_TYPE_INDEX 0x1000
 
+#define PDB_OPTIONAL_SECTION_STREAM 5
+
 #define BYTES_TO_PAGES(b) (((b) + PDB_BLOCK_SIZE - 1) / PDB_BLOCK_SIZE)
 
 struct pdb_superblock {

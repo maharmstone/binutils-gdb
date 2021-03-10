@@ -21,14 +21,55 @@
 #include "pdb.h"
 #include "libiberty.h"
 #include "coff/i386.h"
+#include "coff/external.h"
+#include "coff/internal.h"
 #include "coff/pe.h"
+#include "libcoff.h"
+
+static void
+create_section_stream(struct pdb_context *ctx, struct pdb_stream *stream)
+{
+  file_ptr scn_base;
+
+  stream->length = ctx->abfd->section_count * sizeof(struct external_scnhdr);
+  stream->data = xmalloc(stream->length);
+
+  // copy section table from output - it's already been written at this point
+
+  scn_base = bfd_coff_filhsz(ctx->abfd) + bfd_coff_aoutsz(ctx->abfd);
+
+  bfd_seek(ctx->abfd, scn_base, SEEK_SET);
+  bfd_bread(stream->data, stream->length, ctx->abfd);
+}
+
+static void
+create_optional_dbg_header(struct pdb_context *ctx, void **data, uint32_t *size)
+{
+  uint16_t *arr;
+
+  *size = sizeof(uint16_t) * 11;
+  *data = xmalloc(*size);
+  arr = (uint16_t*)*data;
+
+  memset(arr, 0xff, *size);
+
+  bfd_putl16(ctx->num_streams, &arr[PDB_OPTIONAL_SECTION_STREAM]);
+  add_stream(ctx, NULL);
+
+  create_section_stream(ctx, ctx->last_stream);
+}
 
 void
 create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 {
   struct dbi_stream_header *h;
+  void *optional_dbg_header = NULL;
+  uint32_t optional_dbg_header_size = 0;
+  uint8_t *ptr;
 
-  stream->length = sizeof(struct dbi_stream_header);
+  create_optional_dbg_header(ctx, &optional_dbg_header, &optional_dbg_header_size);
+
+  stream->length = sizeof(struct dbi_stream_header) + optional_dbg_header_size;
   stream->data = xmalloc(stream->length);
 
   h = (struct dbi_stream_header*)stream->data;
@@ -48,7 +89,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl32(0, &h->source_info_size); // FIXME
   bfd_putl32(0, &h->type_server_map_size);
   bfd_putl32(0, &h->mfc_type_server_index);
-  bfd_putl32(0, &h->optional_dbg_header_size); // FIXME
+  bfd_putl32(optional_dbg_header_size, &h->optional_dbg_header_size);
   bfd_putl32(0, &h->ec_substream_size);
   bfd_putl16(0, &h->flags);
 
@@ -62,6 +103,8 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   bfd_putl32(0, &h->padding);
 
+  ptr = (uint8_t*)stream->data + sizeof(struct dbi_stream_header);
+
   // FIXME - global stream
   // FIXME - public stream
   // FIXME - sym record stream
@@ -70,5 +113,9 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   // FIXME - section contribution
   // FIXME - section map
   // FIXME - source info
-  // FIXME - optional debug header and streams
+
+  if (optional_dbg_header) {
+    memcpy(ptr, optional_dbg_header, optional_dbg_header_size);
+    free(optional_dbg_header);
+  }
 }
