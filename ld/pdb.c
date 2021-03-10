@@ -32,6 +32,31 @@
 #include <time.h>
 #include "libiberty.h"
 
+static uint32_t
+calc_hash(const uint8_t* data, size_t len) {
+  uint32_t hash = 0;
+
+  while (len >= 4) {
+    hash ^= bfd_getl32(data);
+    data += 4;
+    len -= 4;
+  }
+
+  if (len >= 2) {
+    hash ^= bfd_getl16(data);
+    data += 2;
+    len -= 2;
+  }
+
+  if (len != 0)
+    hash ^= *data;
+
+  hash |= 0x20202020;
+  hash ^= (hash >> 11);
+
+  return hash ^ (hash >> 16);
+}
+
 static void
 init_rollover_hash_list (struct pdb_rollover_hash_list *list, unsigned int num_buckets)
 {
@@ -167,11 +192,16 @@ write_free_page_map (struct pdb_context *ctx)
 }
 
 struct pdb_stream *
-add_stream (struct pdb_context *ctx)
+add_stream (struct pdb_context *ctx, const char *name)
 {
   struct pdb_stream *stream = xmalloc(sizeof(struct pdb_stream));
 
   memset(stream, 0, sizeof(struct pdb_stream));
+
+  stream->index = ctx->num_streams;
+
+  if (name)
+    stream->name = xstrdup(name);
 
   if (ctx->last_stream)
     ctx->last_stream->next = stream;
@@ -248,21 +278,69 @@ prepare_stream_directory (struct pdb_context *ctx)
     if (ctx->first_stream->data)
       free(ctx->first_stream->data);
 
+    if (ctx->first_stream->name)
+      free(ctx->first_stream->name);
+
     free(ctx->first_stream);
     ctx->first_stream = stream;
   }
 }
 
 static void
-create_pdb_info_stream (struct pdb_stream *stream, const unsigned char *guid)
+create_pdb_info_stream (struct pdb_context *ctx, struct pdb_stream *stream, const unsigned char *guid)
 {
-  uint32_t *feature_code;
+  struct pdb_stream *s;
+  uint32_t named_stream_buf_len = 0, hash_size = 0, num_buckets, buf_pos;
   uint8_t *ptr;
+  struct pdb_rollover_hash_list named_stream_hash_list;
 
   stream->length = 28; // header
   stream->length += sizeof(uint32_t); // named stream map length
-  stream->length += sizeof(uint32_t) * 5; // empty hash map
+  stream->length += sizeof(uint32_t) * 4; // for hash map
+  stream->length += sizeof(uint32_t); // after hash map
   stream->length += sizeof(uint32_t); // feature code
+
+  s = ctx->first_stream;
+  while (s) {
+    if (s->name)
+      hash_size++;
+
+    s = s->next;
+  }
+
+  num_buckets = hash_size * 2;
+
+  init_rollover_hash_list(&named_stream_hash_list, num_buckets);
+
+  s = ctx->first_stream;
+  buf_pos = 0;
+  while (s) {
+    if (s->name) {
+      size_t name_len = strlen(s->name);
+      struct pdb_rollover_hash_entry *ent;
+      struct pdb_named_stream_entry *pnse;
+
+      ent = xmalloc(offsetof(struct pdb_rollover_hash_entry, data) + sizeof(struct pdb_named_stream_entry));
+
+      ent->hash = calc_hash((const uint8_t*)s->name, name_len);
+      ent->length = sizeof(struct pdb_named_stream_entry);
+
+      pnse = (struct pdb_named_stream_entry*)ent->data;
+      bfd_putl32(buf_pos, &pnse->offset);
+      bfd_putl32(s->index, &pnse->stream);
+
+      add_rollover_hash_entry (&named_stream_hash_list, ent);
+
+      named_stream_buf_len += name_len + 1;
+      buf_pos += name_len + 1;
+     }
+
+     s = s->next;
+  }
+
+  stream->length += named_stream_buf_len;
+  stream->length += ((hash_size + 31) / 32) * sizeof(uint32_t); // present bitmap
+  stream->length += hash_size * sizeof(struct pdb_named_stream_entry);
 
   stream->data = xmalloc(stream->length);
   memset(stream->data, 0, stream->length);
@@ -279,10 +357,64 @@ create_pdb_info_stream (struct pdb_stream *stream, const unsigned char *guid)
   bfd_putl16 (bfd_getb16 (&guid[6]), ptr); ptr += sizeof(uint16_t);
   memcpy (ptr, &guid[8], 8); ptr += 8;
 
-  // FIXME - named stream map
+  bfd_putl32 (named_stream_buf_len, ptr);
+  ptr += sizeof(uint32_t);
 
-  feature_code = (uint32_t*)((uint8_t*)stream->data + stream->length - sizeof(uint32_t));
-  bfd_putl32 (pdb_feature_code_vc110, feature_code);
+  s = ctx->first_stream;
+  while (s) {
+    if (s->name) {
+      size_t len = strlen(s->name);
+
+      memcpy(ptr, s->name, len);
+      ptr += len + 1;
+    }
+
+    s = s->next;
+  }
+
+  // hash map
+
+  bfd_putl32 (hash_size, ptr);
+  ptr += sizeof(uint32_t);
+
+  bfd_putl32 (num_buckets, ptr);
+  ptr += sizeof(uint32_t);
+
+  bfd_putl32 ((num_buckets + 31) / 32, ptr); // present bitmap length
+  ptr += sizeof(uint32_t);
+
+  for (unsigned int i = 0; i < num_buckets; i += 32) {
+    uint32_t v = 0;
+
+    for (unsigned int j = 0; j < 8; j++) {
+      if (i + j >= num_buckets)
+	break;
+
+      v <<= 1;
+
+      if (named_stream_hash_list.buckets[i + j])
+	v |= 1;
+    }
+
+    bfd_putl32 (v, ptr);
+    ptr += sizeof(uint32_t);
+  }
+
+  bfd_putl32 (0, ptr); // deleted bitmap length
+  ptr += sizeof(uint32_t);
+
+  for (unsigned int i = 0; i < named_stream_hash_list.num_buckets; i++) {
+    if (named_stream_hash_list.buckets[i]) {
+      memcpy(ptr, named_stream_hash_list.buckets[i]->data, named_stream_hash_list.buckets[i]->length);
+      ptr += named_stream_hash_list.buckets[i]->length;
+    }
+  }
+
+  ptr += sizeof(uint32_t);
+
+  bfd_putl32 (pdb_feature_code_vc110, ptr);
+
+  free_rollover_hash_list(&named_stream_hash_list);
 }
 
 void
@@ -304,23 +436,24 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   // FIXME - write streams etc.
 
-  add_stream(&ctx); // old directory (FIXME?)
+  add_stream(&ctx, NULL); // old directory (FIXME?)
 
-  add_stream(&ctx);
+  add_stream(&ctx, NULL);
   pdb_info_stream = ctx.last_stream;
 
-  add_stream(&ctx);
+  add_stream(&ctx, NULL);
   tpi_stream = ctx.last_stream;
 
-  add_stream(&ctx);
+  add_stream(&ctx, NULL);
   dbi_stream = ctx.last_stream;
 
-  add_stream(&ctx);
+  add_stream(&ctx, NULL);
   ipi_stream = ctx.last_stream;
 
-  // FIXME - named streams?
+  add_stream(&ctx, "/LinkInfo");
+  add_stream(&ctx, "/names");
 
-  create_pdb_info_stream(pdb_info_stream, guid);
+  create_pdb_info_stream(&ctx, pdb_info_stream, guid);
 
   create_tpi_stream(&ctx, tpi_stream);
 

@@ -42,6 +42,8 @@ struct pdb_superblock {
 
 struct pdb_stream {
   struct pdb_stream *next;
+  unsigned int index;
+  char *name;
   uint32_t length;
   void *data;
 };
@@ -153,9 +155,14 @@ struct pdb_rollover_hash_list {
   struct pdb_rollover_hash_entry **buckets;
 };
 
+struct pdb_named_stream_entry {
+  uint32_t offset;
+  uint32_t stream;
+};
+
 // pdb.c
 void create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid);
-struct pdb_stream *add_stream (struct pdb_context *ctx);
+struct pdb_stream *add_stream (struct pdb_context *ctx, const char *name);
 
 // pdb-dbi.c
 void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);

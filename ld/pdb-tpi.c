@@ -40,7 +40,7 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl32(0, &h->type_record_bytes);
 
   bfd_putl16(ctx->num_streams, &h->hash_stream_index);
-  add_stream(ctx);
+  add_stream(ctx, NULL);
 
   bfd_putl16(0xfffff, &h->hash_aux_stream_index);
   bfd_putl32(sizeof(uint32_t), &h->hash_key_size);
