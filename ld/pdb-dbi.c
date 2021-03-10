@@ -558,6 +558,48 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
   }
 }
 
+static void
+handle_module_checksums(uint8_t *data, uint32_t length, uint16_t *num_source_files,
+			struct pdb_string_mapping *string_map)
+{
+  struct pdb_checksum *checksum;
+
+  checksum = (struct pdb_checksum*)data;
+
+  while (length >= sizeof(struct pdb_checksum)) {
+    struct pdb_string_mapping *map;
+    bool string_found = false;
+    uint32_t checksum_len = sizeof(struct pdb_checksum) + checksum->hash_length;
+    uint32_t string_offset = bfd_getl32(&checksum->string_offset);
+
+    if (checksum_len % 4 != 0)
+      checksum_len += 4 - (checksum_len % 4);
+
+    if (checksum_len > length)
+      break;
+
+    map = string_map;
+    while (map) {
+      if (string_offset == map->local) {
+	string_offset = map->global;
+	bfd_putl32(string_offset, &checksum->string_offset);
+	string_found = true;
+	break;
+      }
+
+      map = map->next;
+    }
+
+    if (!string_found)
+      bfd_putl32(0, &checksum->string_offset);
+
+    (*num_source_files)++;
+
+    checksum = (struct pdb_checksum*)((uint8_t*)checksum + checksum_len);
+    length -= checksum_len;
+  }
+}
+
 static uint16_t
 create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_size,
 		     uint32_t *c13_lines_size, uint16_t *num_source_files,
@@ -568,8 +610,9 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   uint16_t index;
   bfd_byte *contents = NULL;
   struct pdb_subsection *subsect;
-  uint32_t left;
-  uint8_t *symptr;
+  uint32_t left, checksums_length;
+  uint8_t *symptr, *chksumptr;
+  struct pdb_string_mapping* string_map = NULL;
 
   *symbols_size = 0;
   *c13_lines_size = 0;
@@ -643,6 +686,7 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   subsect = (struct pdb_subsection*)((uint8_t*)contents + sizeof(uint32_t));
   left = pdb_sect->size - sizeof(uint32_t);
   *symbols_size = sizeof(uint32_t);
+  checksums_length = 0;
 
   while (left > 0) {
     uint32_t type = bfd_getl32(&subsect->type);
@@ -650,6 +694,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
     if (type == CV_DEBUG_S_SYMBOLS)
       *symbols_size += length;
+    else if (type == CV_DEBUG_S_FILECHKSMS)
+      checksums_length += length;
 
     if (left < sizeof(struct pdb_subsection) + length)
       break;
@@ -659,6 +705,10 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   }
 
   stream->length = *symbols_size;
+
+  if (checksums_length != 0)
+    stream->length += sizeof(struct pdb_subsection) + checksums_length;
+
   stream->data = xmalloc(stream->length);
 
   // copy data into stream
@@ -668,6 +718,16 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
   bfd_putl32(CV_SIGNATURE_C13, (uint32_t*)stream->data);
   symptr = (uint8_t*)stream->data + sizeof(uint32_t);
+  chksumptr = (uint8_t*)stream->data + *symbols_size;
+
+  if (checksums_length != 0) {
+    struct pdb_subsection* csss = (struct pdb_subsection*)chksumptr;
+
+    bfd_putl32(CV_DEBUG_S_FILECHKSMS, &csss->type);
+    bfd_putl32(checksums_length, &csss->length);
+
+    chksumptr += sizeof(struct pdb_subsection);
+  }
 
   while (left > 0) {
     uint32_t type = bfd_getl32(&subsect->type);
@@ -686,9 +746,17 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
       uint32_t string_len;
 
       while (length2 > 0) {
+	struct pdb_string_mapping *map;
+
 	string_len = strlen(ptr);
 
-	add_pdb_string(ptr);
+	map = (struct pdb_string_mapping*)xmalloc(sizeof(struct pdb_string_mapping));
+
+	map->next = string_map;
+	map->local = (ptr - (char*)subsect) - sizeof(struct pdb_subsection);
+	map->global = add_pdb_string(ptr);
+
+	string_map = map;
 
 	if (length2 < string_len + 1)
 	  break;
@@ -696,6 +764,10 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 	ptr += string_len + 1;
 	length2 -= string_len + 1;
       }
+    } else if (type == CV_DEBUG_S_FILECHKSMS) {
+      memcpy(chksumptr, (uint8_t*)subsect + sizeof(struct pdb_subsection), length);
+
+      chksumptr += length;
     }
 
     if (left < sizeof(struct pdb_subsection) + length)
@@ -707,10 +779,21 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
   free(contents);
 
-  // FIXME - MD5 hashes of files
-  // FIXME - num_source_files
+  if (checksums_length != 0) {
+    chksumptr = (uint8_t*)stream->data + *symbols_size + sizeof(struct pdb_subsection);
+    handle_module_checksums(chksumptr, checksums_length, num_source_files, string_map);
+  }
 
   // FIXME - line numbers
+
+  while (string_map) {
+    struct pdb_string_mapping *n;
+
+    n = string_map->next;
+    free(string_map);
+
+    string_map = n;
+  }
 
   return index;
 }
@@ -961,10 +1044,10 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   create_optional_dbg_header(ctx, &optional_dbg_header, &optional_dbg_header_size);
 
-  create_file_info_substream(ctx->abfd, &file_info, &file_info_size);
-
   create_module_info_substream(ctx, ctx->abfd, &module_info, &module_info_size,
 			       &globals);
+
+  create_file_info_substream(ctx->abfd, &file_info, &file_info_size);
 
   create_sections_contribution_substream(ctx->abfd, &section_contributions,
 					 &section_contributions_size);

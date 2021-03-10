@@ -38,6 +38,7 @@
 
 #define CV_DEBUG_S_SYMBOLS		0xf1
 #define CV_DEBUG_S_STRINGTABLE		0xf3
+#define CV_DEBUG_S_FILECHKSMS		0xf4
 
 #define S_LDATA32			0x110c
 #define S_GDATA32			0x110d
@@ -334,6 +335,18 @@ struct pdb_names_stream_header {
 struct pdb_subsection {
   uint32_t type;
   uint32_t length;
+};
+
+struct pdb_checksum {
+  uint32_t string_offset;
+  uint8_t hash_length;
+  uint8_t hash_type;
+};
+
+struct pdb_string_mapping {
+  struct pdb_string_mapping* next;
+  unsigned int local;
+  unsigned int global;
 };
 
 struct pdb_named_stream_entry {
