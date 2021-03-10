@@ -739,7 +739,7 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
   unsigned int num_entries = 0;
 
   mod_type_info->type_list = NULL;
-  mod_type_info->num_types = 0;
+  mod_type_info->num_entries = 0;
 
   sect = in_bfd->sections;
   while (sect) {
@@ -1347,7 +1347,7 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
   }
 
   mod_type_info->type_list = type_list;
-  mod_type_info->num_types = num_entries;
+  mod_type_info->num_entries = num_entries;
 
   free(contents);
 }
@@ -2154,12 +2154,8 @@ load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct
   mod_num = 1;
 
   while (in_bfd) {
-    mod_type_info->offset = type_index - FIRST_TYPE_INDEX;
-
     load_module_types(in_bfd, types, last_type, mod_num, ipi_types,
 		      last_ipi_type, mod_type_info);
-
-    mod_type_info->num_entries = type_index - mod_type_info->offset - FIRST_TYPE_INDEX;
 
     in_bfd = in_bfd->link.next;
     mod_type_info++;

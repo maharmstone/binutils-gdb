@@ -567,7 +567,7 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
 
 	type = bfd_getl32(data + 28);
 
-	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + mod_type_info->num_types) {
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + mod_type_info->num_entries) {
 	  type = mod_type_info->type_list[type - FIRST_TYPE_INDEX];
 	  bfd_putl32(type, data + 28);
 	}
@@ -594,7 +594,7 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
 
 	type = bfd_getl32(data + 4);
 
-	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + mod_type_info->num_types) {
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + mod_type_info->num_entries) {
 	  type = mod_type_info->type_list[type - FIRST_TYPE_INDEX];
 	  bfd_putl32(type, data + 4);
 	}

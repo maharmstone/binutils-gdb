@@ -425,10 +425,8 @@ struct pdb_udt_mod_src_line {
 };
 
 struct pdb_mod_type_info {
-  uint16_t offset;
-  unsigned int num_entries;
   uint16_t *type_list;
-  unsigned int num_types;
+  unsigned int num_entries;
 };
 
 struct pdb_string {
