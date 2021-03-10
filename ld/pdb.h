@@ -239,6 +239,30 @@ enum section_contributions_version {
   section_contributions_version_v2 = 0xeffe0000 + 20140516
 };
 
+struct section_map_header {
+  uint16_t count;
+  uint16_t log_count;
+};
+
+struct section_map_entry {
+  uint16_t flags;
+  uint16_t ovl;
+  uint16_t group;
+  uint16_t frame;
+  uint16_t section_name;
+  uint16_t class_name;
+  uint32_t offset;
+  uint32_t section_length;
+};
+
+#define SECTION_MAP_ENTRY_FLAGS_READ		0x0001
+#define SECTION_MAP_ENTRY_FLAGS_WRITE		0x0002
+#define SECTION_MAP_ENTRY_FLAGS_EXECUTE		0x0004
+#define SECTION_MAP_ENTRY_FLAGS_32BIT		0x0008
+#define SECTION_MAP_ENTRY_FLAGS_SELECTOR	0x0100
+#define SECTION_MAP_ENTRY_FLAGS_ABSOLUTE	0x0200
+#define SECTION_MAP_ENTRY_FLAGS_GROUP		0x0400
+
 struct pdb_named_stream_entry {
   uint32_t offset;
   uint32_t stream;

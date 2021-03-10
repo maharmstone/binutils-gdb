@@ -549,14 +549,70 @@ create_sections_contribution_substream(bfd *abfd, void **data, uint32_t *length)
   qsort((uint8_t*)*data + sizeof(uint32_t), num_sections, sizeof(struct section_contribution), sc_compare);
 }
 
+static void
+create_section_map_substream (bfd *abfd, void **data, uint32_t *length)
+{
+  struct section_map_header *header;
+  struct section_map_entry *entries;
+  struct bfd_section *sect;
+
+  /* This substream, also known as the segment map, looks to be a remnant of
+   * pre-32-bit Windows, and doesn't appear to do anything useful. */
+
+  *length = sizeof(struct section_map_header) + ((abfd->section_count + 1) * sizeof(struct section_map_entry));
+  *data = xmalloc(*length);
+
+  header = (struct section_map_header*)*data;
+
+  bfd_putl16(abfd->section_count + 1, &header->count);
+  bfd_putl16(abfd->section_count + 1, &header->log_count);
+
+  entries = (struct section_map_entry*)&header[1];
+  sect = abfd->sections;
+
+  for (unsigned int i = 0; i < abfd->section_count; i++) {
+    uint16_t flags = SECTION_MAP_ENTRY_FLAGS_SELECTOR |
+		     SECTION_MAP_ENTRY_FLAGS_32BIT |
+		     SECTION_MAP_ENTRY_FLAGS_READ;
+
+    if (!(sect->flags & SEC_READONLY))
+      flags |= SECTION_MAP_ENTRY_FLAGS_WRITE;
+
+    if (sect->flags & SEC_CODE)
+      flags |= SECTION_MAP_ENTRY_FLAGS_EXECUTE;
+
+    bfd_putl16(flags, &entries[i].flags);
+
+    bfd_putl16(0, &entries[i].ovl);
+    bfd_putl16(0, &entries[i].group);
+    bfd_putl16(i + 1, &entries[i].frame);
+    bfd_putl16(0xffff, &entries[i].section_name);
+    bfd_putl16(0xffff, &entries[i].class_name);
+    bfd_putl32(0, &entries[i].offset);
+    bfd_putl32(sect->size, &entries[i].section_length);
+
+    sect = sect->next;
+  }
+
+  bfd_putl16(SECTION_MAP_ENTRY_FLAGS_ABSOLUTE | SECTION_MAP_ENTRY_FLAGS_32BIT,
+	     &entries[abfd->section_count].flags);
+  bfd_putl16(0, &entries[abfd->section_count].ovl);
+  bfd_putl16(0, &entries[abfd->section_count].group);
+  bfd_putl16(0, &entries[abfd->section_count].frame);
+  bfd_putl16(0xffff, &entries[abfd->section_count].section_name);
+  bfd_putl16(0xffff, &entries[abfd->section_count].class_name);
+  bfd_putl32(0, &entries[abfd->section_count].offset);
+  bfd_putl32(0xffffffff, &entries[abfd->section_count].section_length);
+}
+
 void
 create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 {
   struct dbi_stream_header *h;
   void *optional_dbg_header = NULL, *file_info = NULL, *module_info = NULL;
-  void *section_contributions = NULL;
+  void *section_contributions = NULL, *section_map = NULL;
   uint32_t optional_dbg_header_size = 0, file_info_size = 0, module_info_size = 0;
-  uint32_t section_contributions_size = 0;
+  uint32_t section_contributions_size = 0, section_map_size = 0;
   uint16_t sym_record_stream, public_stream;
   uint8_t *ptr;
   struct pdb_hash_list publics;
@@ -574,12 +630,15 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   create_sections_contribution_substream(ctx->abfd, &section_contributions,
 					 &section_contributions_size);
 
+  create_section_map_substream(ctx->abfd, &section_map, &section_map_size);
+
   sym_record_stream = create_symbol_record_stream(ctx, &publics);
 
   public_stream = create_symbol_stream(ctx, &publics);
 
   stream->length = sizeof(struct dbi_stream_header) + optional_dbg_header_size +
-		   file_info_size + module_info_size + section_contributions_size;
+		   file_info_size + module_info_size + section_contributions_size +
+		   section_map_size;
   stream->data = xmalloc(stream->length);
 
   h = (struct dbi_stream_header*)stream->data;
@@ -595,7 +654,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl16(0, &h->pdb_dll_rbld);
   bfd_putl32(module_info_size, &h->mod_info_size);
   bfd_putl32(section_contributions_size, &h->section_contribution_size);
-  bfd_putl32(0, &h->section_map_size); // FIXME
+  bfd_putl32(section_map_size, &h->section_map_size);
   bfd_putl32(file_info_size, &h->source_info_size);
   bfd_putl32(0, &h->type_server_map_size);
   bfd_putl32(0, &h->mfc_type_server_index);
@@ -629,7 +688,11 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
     free(section_contributions);
   }
 
-  // FIXME - section map
+  if (section_map) {
+    memcpy(ptr, section_map, section_map_size);
+    ptr += section_map_size;
+    free(section_map);
+  }
 
   if (file_info) {
     memcpy(ptr, file_info, file_info_size);
