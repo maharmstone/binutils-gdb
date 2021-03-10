@@ -61,6 +61,23 @@ create_optional_dbg_header(struct pdb_context *ctx, void **data, uint32_t *size)
   create_section_stream(ctx, ctx->last_stream);
 }
 
+static uint16_t
+find_section_number (struct bfd *abfd, struct bfd_section *section)
+{
+  struct bfd_section *s = abfd->sections;
+  uint16_t i = 1;
+
+  while (s) {
+    if (s == section)
+      return i;
+
+    i++;
+    s = s->next;
+  }
+
+  return 0;
+}
+
 static void
 add_public_symbol(struct pdb_hash_list *list, const char *name, uint16_t section, uint32_t address)
 {
@@ -85,6 +102,28 @@ add_public_symbol(struct pdb_hash_list *list, const char *name, uint16_t section
   memcpy(pubsym32 + 14, name, name_len + 1);
 
   add_hash_entry(list, ent);
+}
+
+static void
+add_public_symbols(struct pdb_hash_list *publics, bfd *abfd)
+{
+  bfd *in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
+
+  while (in_bfd) {
+    for (unsigned int i = 0; i < in_bfd->symcount; i++) {
+      if (in_bfd->tdata.coff_obj_data->sym_hashes[i]) {
+	struct coff_link_hash_entry *ent = in_bfd->tdata.coff_obj_data->sym_hashes[i];
+	uint16_t section = find_section_number(abfd, ent->root.u.def.section->output_section);
+
+	if (section > 0) {
+	  add_public_symbol(publics, ent->root.root.string, section,
+			    ent->root.u.def.section->output_offset + ent->root.u.def.value);
+	}
+      }
+    }
+
+    in_bfd = in_bfd->link.next;
+  }
 }
 
 static void
@@ -295,6 +334,8 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   struct pdb_hash_list publics;
 
   init_hash_list(&publics, NUM_SYMBOL_BUCKETS);
+
+  add_public_symbols(&publics, ctx->abfd);
 
   create_optional_dbg_header(ctx, &optional_dbg_header, &optional_dbg_header_size);
 
