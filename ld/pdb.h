@@ -37,6 +37,7 @@
 #define CV_SIGNATURE_C13	4
 
 #define CV_DEBUG_S_SYMBOLS		0xf1
+#define CV_DEBUG_S_LINES		0xf2
 #define CV_DEBUG_S_STRINGTABLE		0xf3
 #define CV_DEBUG_S_FILECHKSMS		0xf4
 
@@ -352,6 +353,14 @@ struct pdb_string_mapping {
 struct pdb_source_file {
   struct pdb_source_file *next;
   char name[1];
+};
+
+struct pdb_subsection_lines {
+  struct pdb_subsection header;
+  uint32_t address;
+  uint16_t segment;
+  uint16_t flags;
+  uint32_t length;
 };
 
 struct pdb_named_stream_entry {

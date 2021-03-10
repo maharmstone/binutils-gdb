@@ -674,8 +674,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   uint16_t index;
   bfd_byte *contents = NULL;
   struct pdb_subsection *subsect;
-  uint32_t left, checksums_length;
-  uint8_t *symptr, *chksumptr;
+  uint32_t left, checksums_length, line_numbers_length;
+  uint8_t *symptr, *chksumptr, *linesptr, *origlinesptr;
   struct pdb_string_mapping* string_map = NULL;
 
   *symbols_size = 0;
@@ -751,6 +751,7 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   left = pdb_sect->size - sizeof(uint32_t);
   *symbols_size = sizeof(uint32_t);
   checksums_length = 0;
+  line_numbers_length = 0;
 
   while (left > 0) {
     uint32_t type = bfd_getl32(&subsect->type);
@@ -760,6 +761,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
       *symbols_size += length;
     else if (type == CV_DEBUG_S_FILECHKSMS)
       checksums_length += length;
+    else if (type == CV_DEBUG_S_LINES)
+      line_numbers_length += sizeof(struct pdb_subsection) + length;
 
     if (left < sizeof(struct pdb_subsection) + length)
       break;
@@ -772,6 +775,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
   if (checksums_length != 0)
     stream->length += sizeof(struct pdb_subsection) + checksums_length;
+
+  stream->length += line_numbers_length;
 
   stream->data = xmalloc(stream->length);
 
@@ -792,6 +797,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
     chksumptr += sizeof(struct pdb_subsection);
   }
+
+  linesptr = origlinesptr = chksumptr + checksums_length;
 
   while (left > 0) {
     uint32_t type = bfd_getl32(&subsect->type);
@@ -832,6 +839,10 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
       memcpy(chksumptr, (uint8_t*)subsect + sizeof(struct pdb_subsection), length);
 
       chksumptr += length;
+    } else if (type == CV_DEBUG_S_LINES) {
+      memcpy(linesptr, subsect, sizeof(struct pdb_subsection) + length);
+
+      linesptr += sizeof(struct pdb_subsection) + length;
     }
 
     if (left < sizeof(struct pdb_subsection) + length)
@@ -848,8 +859,6 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
     handle_module_checksums(chksumptr, checksums_length, num_source_files, string_map,
 			    source_files);
   }
-
-  // FIXME - line numbers
 
   while (string_map) {
     struct pdb_string_mapping *n;
