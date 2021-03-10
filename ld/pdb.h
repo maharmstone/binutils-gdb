@@ -68,6 +68,8 @@
 #define LF_ENUM				0x1507
 #define LF_MEMBER			0x150d
 #define LF_STRING_ID			0x1605
+#define LF_UDT_SRC_LINE			0x1606
+#define LF_UDT_MOD_SRC_LINE		0x1607
 #define LF_CHAR				0x8000
 #define LF_SHORT			0x8001
 #define LF_USHORT			0x8002
@@ -411,6 +413,13 @@ struct pdb_index { // lfIndex in cvdump
   uint16_t type;
 };
 
+struct pdb_udt_mod_src_line {
+  uint16_t type;
+  uint16_t source_file;
+  uint32_t line;
+  uint16_t mod;
+};
+
 struct pdb_mod_type_info {
   uint16_t offset;
   unsigned int num_entries;
@@ -497,8 +506,9 @@ const char *find_pdb_string(unsigned int offset);
 void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
 
 // pdb-tpi.c
-void load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct pdb_type **types,
-		 struct pdb_type **last_type, struct pdb_type **ipi_types);
+void load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info,
+		 struct pdb_type **types, struct pdb_type **last_type,
+		 struct pdb_type **ipi_types, struct pdb_type **last_ipi_type);
 void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
 			struct pdb_stream *ipi_stream, struct pdb_type *types,
 			struct pdb_type *ipi_types);

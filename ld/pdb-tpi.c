@@ -627,8 +627,8 @@ find_type_array (struct pdb_type **types, struct pdb_type **last_type,
 }
 
 static uint16_t
-find_type_string_id (struct pdb_type **ipi_types, uint16_t substring,
-		     const char *string)
+find_type_string_id (struct pdb_type **ipi_types, struct pdb_type **last_type,
+		     uint16_t substring, const char *string)
 {
   struct pdb_type *t = *ipi_types;
   struct pdb_string_id *str;
@@ -660,6 +660,63 @@ find_type_string_id (struct pdb_type **ipi_types, uint16_t substring,
   str->substring = substring;
   memcpy(str->string, string, string_len + 1);
 
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*ipi_types)
+    *ipi_types = t;
+
+  ipi_type_index++;
+
+  return t->index;
+}
+
+static uint16_t
+find_type_udt_src_line (struct pdb_type **ipi_types, struct pdb_type **last_ipi_type,
+			uint16_t type, uint16_t source_file_id, uint32_t line, uint16_t mod)
+{
+  struct pdb_type *t = *ipi_types;
+  struct pdb_string_id *string_type = NULL;
+  struct pdb_udt_mod_src_line *pumsl;
+
+  while (t) {
+    if (t->cv_type == LF_UDT_MOD_SRC_LINE) {
+      pumsl = (struct pdb_udt_mod_src_line*)t->data;
+
+      if (pumsl->type == type)
+	return t->index;
+    } else if (t->cv_type == LF_STRING_ID && t->index == source_file_id)
+      string_type = (struct pdb_string_id *)t->data;
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) +
+				sizeof(struct pdb_udt_mod_src_line));
+
+  t->next = NULL;
+  t->index = ipi_type_index;
+  t->cv_type = LF_UDT_MOD_SRC_LINE;
+
+  pumsl = (struct pdb_udt_mod_src_line*)t->data;
+
+  pumsl->type = type;
+
+  if (string_type)
+    pumsl->source_file = add_pdb_string (string_type->string);
+  else
+    pumsl->source_file = 0;
+
+  pumsl->line = line;
+  pumsl->mod = mod;
+
+  if (*last_ipi_type)
+    (*last_ipi_type)->next = t;
+
+  *last_ipi_type = t;
+
   if (!*ipi_types)
     *ipi_types = t;
 
@@ -669,8 +726,8 @@ find_type_string_id (struct pdb_type **ipi_types, uint16_t substring,
 }
 
 static void
-load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type,
-		   struct pdb_type **ipi_types)
+load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type, uint16_t mod,
+		   struct pdb_type **ipi_types, struct pdb_type **last_ipi_type)
 {
   struct bfd_section *sect, *pdb_sect = NULL;
   bfd_byte *contents = NULL;
@@ -1247,7 +1304,31 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	  substring = type_list[substring - FIRST_TYPE_INDEX];
 
 	type_list[mod_type_index - FIRST_TYPE_INDEX] =
-	  find_type_string_id(ipi_types, substring, (const char *)ptr2);
+	  find_type_string_id(ipi_types, last_ipi_type, substring,
+			      (const char *)ptr2);
+
+	break;
+      }
+
+      case LF_UDT_SRC_LINE:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t type, source_file;
+	uint32_t line;
+
+	type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	source_file = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	line = bfd_getl32(ptr2); ptr2 += sizeof(uint32_t);
+
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+	  type = type_list[type - FIRST_TYPE_INDEX];
+
+	if (source_file >= FIRST_TYPE_INDEX && source_file < FIRST_TYPE_INDEX + num_entries)
+	  source_file = type_list[source_file - FIRST_TYPE_INDEX];
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] =
+	  find_type_udt_src_line(ipi_types, last_ipi_type, type, source_file,
+				 line, mod);
 
 	break;
       }
@@ -1537,6 +1618,10 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 	break;
       }
+
+      case LF_UDT_MOD_SRC_LINE:
+	len += 20;
+      break;
 
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
@@ -2015,6 +2100,19 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	break;
       }
 
+      case LF_UDT_MOD_SRC_LINE: {
+	struct pdb_udt_mod_src_line *pumsl = (struct pdb_udt_mod_src_line *)t->data;
+
+	bfd_putl16 (18, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_UDT_MOD_SRC_LINE, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (pumsl->type, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (pumsl->source_file, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (pumsl->line, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (pumsl->mod, ptr); ptr += sizeof(uint32_t);
+
+	break;
+      }
+
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
     }
@@ -2035,27 +2133,31 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 void
 load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct pdb_type **types,
-	    struct pdb_type **last_type, struct pdb_type **ipi_types)
+	    struct pdb_type **last_type, struct pdb_type **ipi_types, struct pdb_type **last_ipi_type)
 {
   bfd *in_bfd;
   struct pdb_mod_type_info *mod_type_info;
+  uint16_t mod_num;
 
   *types = NULL;
   *last_type = NULL;
   *ipi_types = NULL;
+  *last_ipi_type = NULL;
 
   in_bfd = ctx->abfd->tdata.coff_obj_data->link_info->input_bfds;
   mod_type_info = type_info;
+  mod_num = 1;
 
   while (in_bfd) {
     mod_type_info->offset = type_index - FIRST_TYPE_INDEX;
 
-    load_module_types(in_bfd, types, last_type, ipi_types);
+    load_module_types(in_bfd, types, last_type, mod_num, ipi_types, last_ipi_type);
 
     mod_type_info->num_entries = type_index - mod_type_info->offset - FIRST_TYPE_INDEX;
 
     in_bfd = in_bfd->link.next;
     mod_type_info++;
+    mod_num++;
   }
 }
 
