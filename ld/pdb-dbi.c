@@ -128,29 +128,80 @@ add_public_symbols(struct pdb_hash_list *publics, bfd *abfd)
 }
 
 static void
-create_file_info_substream(bfd *abfd, void **data, uint32_t *length)
+create_file_info_substream(bfd *abfd, void **data, uint32_t *length, struct pdb_source_file **source_file_array,
+			   unsigned int *num_modules)
 {
-  unsigned int num_modules = 0;
+  unsigned int num_source_files = 0, buflen = 0;
   struct file_info_substream *fis;
   bfd *in_bfd;
+  uint16_t *mod_indices, *mod_file_counts;
+  uint32_t *string_offsets;
+  char *buf, *start_buf;
+
+  *num_modules = 0;
 
   in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
 
   while (in_bfd) {
-    num_modules++;
+    struct pdb_source_file *psf = source_file_array[*num_modules];
+
+    while (psf) {
+      num_source_files++;
+      buflen += strlen(psf->name) + 1;
+
+      psf = psf->next;
+    }
+
+    (*num_modules)++;
     in_bfd = in_bfd->link.next;
   }
 
-  *length = sizeof(struct file_info_substream) + (num_modules * sizeof(uint32_t)) + 1;
+  *length = sizeof(struct file_info_substream) + (*num_modules * sizeof(uint16_t)) +
+	    (*num_modules * sizeof(uint16_t)) + (num_source_files * sizeof(uint32_t)) + (buflen > 0 ? buflen : 1);
+
+  if (*length % 4 != 0)
+    *length += 4 - (*length % 4);
+
   *data = xmalloc(*length);
 
   memset(*data, 0, *length);
 
   fis = (struct file_info_substream *)*data;
 
-  bfd_putl16(num_modules, &fis->num_modules);
+  bfd_putl16(*num_modules, &fis->num_modules);
+  bfd_putl16(num_source_files, &fis->num_source_files);
 
-  // FIXME - set file counts
+  mod_indices = (uint16_t*)&fis[1];
+  mod_file_counts = &mod_indices[*num_modules];
+  string_offsets = (uint32_t*)&mod_file_counts[*num_modules];
+  buf = start_buf = (char*)&string_offsets[num_source_files];
+
+  // FIXME - should be deduping strings here?
+
+  for (unsigned int i = 0; i < *num_modules; i++) {
+    struct pdb_source_file *psf = source_file_array[i];
+    unsigned int mod_num_files = 0;
+
+    while (psf) {
+      size_t str_len = strlen(psf->name);
+
+      bfd_putl32(buf - start_buf, string_offsets);
+
+      memcpy(buf, psf->name, str_len + 1);
+      buf += str_len + 1;
+
+      mod_num_files++;
+      string_offsets++;
+      psf = psf->next;
+    }
+
+    if (i == 0)
+      bfd_putl16(0, &mod_indices[i]);
+    else
+      bfd_putl16(bfd_getl16(&mod_indices[i-1]) + bfd_getl16(&mod_file_counts[i-1]), &mod_indices[i]);
+
+    bfd_putl16(mod_num_files, &mod_file_counts[i]);
+  }
 }
 
 static uint16_t
@@ -560,7 +611,7 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
 
 static void
 handle_module_checksums(uint8_t *data, uint32_t length, uint16_t *num_source_files,
-			struct pdb_string_mapping *string_map)
+			struct pdb_string_mapping *string_map, struct pdb_source_file **source_files)
 {
   struct pdb_checksum *checksum;
 
@@ -592,6 +643,18 @@ handle_module_checksums(uint8_t *data, uint32_t length, uint16_t *num_source_fil
 
     if (!string_found)
       bfd_putl32(0, &checksum->string_offset);
+    else {
+      const char *str = find_pdb_string(string_offset);
+      size_t str_len = strlen(str);
+      struct pdb_source_file *psf;
+
+      psf = (struct pdb_source_file*)xmalloc(offsetof(struct pdb_source_file, name) + str_len + 1);
+
+      psf->next = *source_files;
+      memcpy(psf->name, str, str_len + 1);
+
+      *source_files = psf;
+    }
 
     (*num_source_files)++;
 
@@ -603,7 +666,8 @@ handle_module_checksums(uint8_t *data, uint32_t length, uint16_t *num_source_fil
 static uint16_t
 create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_size,
 		     uint32_t *c13_lines_size, uint16_t *num_source_files,
-		     uint16_t module_num, struct pdb_hash_list *globals)
+		     uint16_t module_num, struct pdb_hash_list *globals,
+		     struct pdb_source_file **source_files)
 {
   struct bfd_section *sect, *pdb_sect = NULL;
   struct pdb_stream *stream;
@@ -781,7 +845,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
   if (checksums_length != 0) {
     chksumptr = (uint8_t*)stream->data + *symbols_size + sizeof(struct pdb_subsection);
-    handle_module_checksums(chksumptr, checksums_length, num_source_files, string_map);
+    handle_module_checksums(chksumptr, checksums_length, num_source_files, string_map,
+			    source_files);
   }
 
   // FIXME - line numbers
@@ -800,11 +865,12 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
 static void
 create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, uint32_t *length,
-			      struct pdb_hash_list *globals)
+			      struct pdb_hash_list *globals, struct pdb_source_file ***source_file_array)
 {
   bfd *in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
   uint8_t *ptr;
   uint16_t index;
+  unsigned int num_modules = 0;
 
   *length = 0;
 
@@ -821,11 +887,16 @@ create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, u
     if (*length % 4 != 0) // align to 32-bit boundary
       *length += 4 - (*length % 4);
 
+    num_modules++;
+
     in_bfd = in_bfd->link.next;
   }
 
   *data = xmalloc(*length);
   memset(*data, 0, *length);
+
+  *source_file_array = (struct pdb_source_file**)xmalloc(sizeof(struct pdb_source_files*) * num_modules);
+  memset(*source_file_array, 0, sizeof(struct pdb_source_files*) * num_modules);
 
   ptr = *data;
   index = 0;
@@ -859,7 +930,8 @@ create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, u
     }
 
     module_stream = create_module_stream(ctx, in_bfd, &symbols_size, &c13_lines_size,
-					 &source_file_count, index + 1, globals);
+					 &source_file_count, index + 1, globals,
+					 &(*source_file_array)[index]);
 
     bfd_putl16(module_stream, &mod_info->module_stream);
     bfd_putl32(symbols_size, &mod_info->symbols_size);
@@ -1031,11 +1103,13 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   struct dbi_stream_header *h;
   void *optional_dbg_header = NULL, *file_info = NULL, *module_info = NULL;
   void *section_contributions = NULL, *section_map = NULL;
+  unsigned int num_modules;
   uint32_t optional_dbg_header_size = 0, file_info_size = 0, module_info_size = 0;
   uint32_t section_contributions_size = 0, section_map_size = 0;
   uint16_t sym_record_stream, public_stream, global_stream;
   uint8_t *ptr;
   struct pdb_hash_list publics, globals;
+  struct pdb_source_file **source_file_array;
 
   init_hash_list(&publics, NUM_SYMBOL_BUCKETS);
   init_hash_list(&globals, NUM_SYMBOL_BUCKETS);
@@ -1045,9 +1119,23 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   create_optional_dbg_header(ctx, &optional_dbg_header, &optional_dbg_header_size);
 
   create_module_info_substream(ctx, ctx->abfd, &module_info, &module_info_size,
-			       &globals);
+			       &globals, &source_file_array);
 
-  create_file_info_substream(ctx->abfd, &file_info, &file_info_size);
+  create_file_info_substream(ctx->abfd, &file_info, &file_info_size,
+			     source_file_array, &num_modules);
+
+  for (unsigned int i = 0; i < num_modules; i++) {
+    struct pdb_source_file *psf = source_file_array[i];
+
+    while (psf) {
+      struct pdb_source_file *n = psf->next;
+
+      free(psf);
+      psf = n;
+    }
+  }
+
+  free(source_file_array);
 
   create_sections_contribution_substream(ctx->abfd, &section_contributions,
 					 &section_contributions_size);

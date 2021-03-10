@@ -558,6 +558,21 @@ add_pdb_string (const char *str)
   return s->offset;
 }
 
+const char *
+find_pdb_string (unsigned int offset)
+{
+  struct pdb_string *s = strings;
+
+  while (s) {
+    if (s->offset == offset)
+      return s->string;
+
+    s = s->next;
+  }
+
+  return NULL;
+}
+
 static void
 populate_names_stream (struct pdb_stream *stream)
 {

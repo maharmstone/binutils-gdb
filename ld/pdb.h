@@ -344,9 +344,14 @@ struct pdb_checksum {
 };
 
 struct pdb_string_mapping {
-  struct pdb_string_mapping* next;
+  struct pdb_string_mapping *next;
   unsigned int local;
   unsigned int global;
+};
+
+struct pdb_source_file {
+  struct pdb_source_file *next;
+  char name[1];
 };
 
 struct pdb_named_stream_entry {
@@ -362,6 +367,7 @@ void add_hash_entry (struct pdb_hash_list *list, struct pdb_hash_entry *ent);
 void init_hash_list (struct pdb_hash_list *list, unsigned int num_buckets);
 void free_hash_list (struct pdb_hash_list *list);
 unsigned int add_pdb_string(const char *str);
+const char *find_pdb_string(unsigned int offset);
 
 // pdb-dbi.c
 void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
