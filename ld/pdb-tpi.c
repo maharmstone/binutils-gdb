@@ -29,7 +29,6 @@
 
 #define NUM_TPI_HASH_BUCKETS 0x3ffff
 
-struct pdb_type *types = NULL, *last_type = NULL;
 uint16_t type_index = FIRST_TYPE_INDEX;
 
 static const uint32_t crc_table[] = {
@@ -94,7 +93,7 @@ crc32 (uint8_t *data, size_t len)
 }
 
 static void
-load_module_types (bfd *in_bfd)
+load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
   struct bfd_section *sect, *pdb_sect = NULL;
   bfd_byte *contents = NULL;
@@ -141,13 +140,13 @@ load_module_types (bfd *in_bfd)
     t->index = type_index;
     memcpy(t->data, ptr, sizeof(uint16_t) + cv_length);
 
-    if (last_type)
-      last_type->next = t;
+    if (*last_type)
+      (*last_type)->next = t;
 
-    last_type = t;
+    *last_type = t;
 
-    if (!types)
-      types = t;
+    if (!*types)
+      *types = t;
 
     ptr += sizeof(uint16_t) + cv_length;
     len -= sizeof(uint16_t) + cv_length;
@@ -281,33 +280,17 @@ create_type_hash_stream (struct pdb_stream *stream, unsigned int num_types,
   bfd_putl32(0, ptr); ptr++;
 }
 
-void
-create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
-		   struct pdb_mod_type_info *type_info)
+static void
+create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
+		    struct pdb_type *types)
 {
   struct tpi_stream_header *h;
-  bfd *in_bfd;
   uint32_t len;
   struct pdb_type *t;
   uint8_t *ptr;
   uint32_t hash_value_buffer_length, index_offset_buffer_length;
   struct pdb_stream *hash_stream;
   unsigned int num_types;
-  struct pdb_mod_type_info *mod_type_info;
-
-  in_bfd = ctx->abfd->tdata.coff_obj_data->link_info->input_bfds;
-  mod_type_info = type_info;
-
-  while (in_bfd) {
-    mod_type_info->offset = type_index - FIRST_TYPE_INDEX;
-
-    load_module_types(in_bfd);
-
-    mod_type_info->num_entries = type_index - mod_type_info->offset - FIRST_TYPE_INDEX;
-
-    in_bfd = in_bfd->link.next;
-    mod_type_info++;
-  }
 
   len = 0;
   num_types = 0;
@@ -343,17 +326,15 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
   ptr = (uint8_t*)&h[1];
 
-  while (types) {
-    uint16_t cv_length = bfd_getl16(types->data);
-    struct pdb_type *n = types->next;
+  t = types;
+  while (t) {
+    uint16_t cv_length = bfd_getl16(t->data);
 
-    memcpy(ptr, types->data, cv_length + sizeof(uint16_t));
+    memcpy(ptr, t->data, cv_length + sizeof(uint16_t));
 
     ptr += cv_length + sizeof(uint16_t);
 
-    free(types);
-
-    types = n;
+    t = t->next;
   }
 
   create_type_hash_stream(hash_stream, num_types, &hash_value_buffer_length,
@@ -365,4 +346,37 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
   bfd_putl32(index_offset_buffer_length, &h->index_offset_buffer_length);
   bfd_putl32(hash_value_buffer_length + index_offset_buffer_length, &h->hash_adj_buffer_offset);
   bfd_putl32(0, &h->hash_adj_buffer_length);
+}
+
+void
+create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
+		   struct pdb_mod_type_info *type_info)
+{
+  bfd *in_bfd;
+  struct pdb_type *types = NULL, *last_type = NULL;
+  struct pdb_mod_type_info *mod_type_info;
+
+  in_bfd = ctx->abfd->tdata.coff_obj_data->link_info->input_bfds;
+  mod_type_info = type_info;
+
+  while (in_bfd) {
+    mod_type_info->offset = type_index - FIRST_TYPE_INDEX;
+
+    load_module_types(in_bfd, &types, &last_type);
+
+    mod_type_info->num_entries = type_index - mod_type_info->offset - FIRST_TYPE_INDEX;
+
+    in_bfd = in_bfd->link.next;
+    mod_type_info++;
+  }
+
+  create_type_stream(ctx, tpi_stream, types);
+
+  while (types) {
+    struct pdb_type *n = types->next;
+
+    free(types);
+
+    types = n;
+  }
 }
