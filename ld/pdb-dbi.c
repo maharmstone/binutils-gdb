@@ -419,14 +419,27 @@ create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
   while (in_bfd) {
     size_t name_len = strlen(in_bfd->filename);
     struct module_info *mod_info = (struct module_info *)ptr;
+    struct bfd_section *sect = in_bfd->sections;
 
-    // FIXME - do section contributions properly
     bfd_putl16(0xffff, &mod_info->sc.section);
-//     uint32_t offset;
     bfd_putl32(0xffffffff, &mod_info->sc.size);
-//     uint32_t characteristics;
     bfd_putl16(index, &mod_info->sc.module_index);
-//     uint32_t data_crc;
+
+    while (sect) {
+      if (sect->size > 0) {
+	uint16_t sect_num = find_section_number(abfd, sect->output_section);
+
+	if (sect_num != 0) {
+	  bfd_putl16(sect_num, &mod_info->sc.section);
+	  bfd_putl32(sect->output_offset, &mod_info->sc.offset);
+	  bfd_putl32(sect->size, &mod_info->sc.size);
+	  bfd_putl32(get_section_characteristics(sect->flags), &mod_info->sc.characteristics);
+	  break;
+	}
+      }
+
+      sect = sect->next;
+    }
 
     bfd_putl16(0xffff, &mod_info->module_stream); // FIXME
     bfd_putl32(0, &mod_info->symbols_size); // FIXME
