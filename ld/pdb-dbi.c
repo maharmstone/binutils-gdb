@@ -59,17 +59,31 @@ create_optional_dbg_header(struct pdb_context *ctx, void **data, uint32_t *size)
   create_section_stream(ctx, ctx->last_stream);
 }
 
+static void
+create_file_info_substream(void **data, uint32_t *length)
+{
+  // FIXME - do this properly
+
+  *length = sizeof(uint32_t);
+  *data = xmalloc(*length);
+
+  memset(*data, 0, *length);
+}
+
 void
 create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 {
   struct dbi_stream_header *h;
-  void *optional_dbg_header = NULL;
-  uint32_t optional_dbg_header_size = 0;
+  void *optional_dbg_header = NULL, *file_info = NULL;
+  uint32_t optional_dbg_header_size = 0, file_info_size = 0;
   uint8_t *ptr;
 
   create_optional_dbg_header(ctx, &optional_dbg_header, &optional_dbg_header_size);
 
-  stream->length = sizeof(struct dbi_stream_header) + optional_dbg_header_size;
+  create_file_info_substream(&file_info, &file_info_size);
+
+  stream->length = sizeof(struct dbi_stream_header) + optional_dbg_header_size +
+		   file_info_size;
   stream->data = xmalloc(stream->length);
 
   h = (struct dbi_stream_header*)stream->data;
@@ -86,7 +100,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl32(0, &h->mod_info_size); // FIXME
   bfd_putl32(0, &h->section_contribution_size); // FIXME
   bfd_putl32(0, &h->section_map_size); // FIXME
-  bfd_putl32(0, &h->source_info_size); // FIXME
+  bfd_putl32(file_info_size, &h->source_info_size);
   bfd_putl32(0, &h->type_server_map_size);
   bfd_putl32(0, &h->mfc_type_server_index);
   bfd_putl32(optional_dbg_header_size, &h->optional_dbg_header_size);
@@ -112,7 +126,12 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   // FIXME - module info
   // FIXME - section contribution
   // FIXME - section map
-  // FIXME - source info
+
+  if (file_info) {
+    memcpy(ptr, file_info, file_info_size);
+    ptr += file_info_size;
+    free(file_info);
+  }
 
   if (optional_dbg_header) {
     memcpy(ptr, optional_dbg_header, optional_dbg_header_size);
