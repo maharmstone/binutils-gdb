@@ -349,12 +349,14 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 }
 
 void
-create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
-		   struct pdb_stream *ipi_stream, struct pdb_mod_type_info *type_info)
+load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct pdb_type **types,
+	    struct pdb_type **last_type)
 {
   bfd *in_bfd;
-  struct pdb_type *types = NULL, *last_type = NULL;
   struct pdb_mod_type_info *mod_type_info;
+
+  *types = NULL;
+  *last_type = NULL;
 
   in_bfd = ctx->abfd->tdata.coff_obj_data->link_info->input_bfds;
   mod_type_info = type_info;
@@ -362,14 +364,20 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
   while (in_bfd) {
     mod_type_info->offset = type_index - FIRST_TYPE_INDEX;
 
-    load_module_types(in_bfd, &types, &last_type);
+    load_module_types(in_bfd, types, last_type);
 
     mod_type_info->num_entries = type_index - mod_type_info->offset - FIRST_TYPE_INDEX;
 
     in_bfd = in_bfd->link.next;
     mod_type_info++;
   }
+}
 
+void
+create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
+		   struct pdb_stream *ipi_stream, struct pdb_type *types)
+{
+  struct pdb_type *ipi_types = NULL;
   create_type_stream(ctx, tpi_stream, types);
 
   while (types) {

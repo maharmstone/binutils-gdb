@@ -383,7 +383,9 @@ const char *find_pdb_string(unsigned int offset);
 void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
 
 // pdb-tpi.c
-void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
-			struct pdb_stream *ipi_stream, struct pdb_mod_type_info *type_info);
+void load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct pdb_type **types,
+		 struct pdb_type **last_type);
+void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
+			struct pdb_stream *ipi_stream, struct pdb_type *types);
 
 #endif /* _PDB_H */
