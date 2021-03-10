@@ -645,6 +645,19 @@ populate_names_stream (struct pdb_stream *stream)
   free_rollover_hash_list (&hash_list);
 }
 
+/* Stream 0 ought to be a copy of the MSF directory from the last
+ * time the PDB file was written. Because we don't do incremental
+ * writes this isn't applicable to us, but we fill it with a dummy
+ * value so as not to confuse radare. */
+static void
+create_old_directory_stream(struct pdb_stream *stream)
+{
+  stream->length = sizeof(uint32_t);
+  stream->data = xmalloc(stream->length);
+
+  bfd_putl32(0, (uint32_t*)stream->data);
+}
+
 void
 create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 {
@@ -676,7 +689,8 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   ctx.num_blocks = 3; // for superblock and two free block maps
 
-  add_stream(&ctx, NULL); // old directory (FIXME?)
+  add_stream(&ctx, NULL);
+  create_old_directory_stream(ctx.last_stream);
 
   add_stream(&ctx, NULL);
   pdb_info_stream = ctx.last_stream;
