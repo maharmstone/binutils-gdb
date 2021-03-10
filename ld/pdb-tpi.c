@@ -777,6 +777,64 @@ find_type_func_id (struct pdb_type **ipi_types, struct pdb_type **last_type,
   return t->index;
 }
 
+static uint16_t
+find_type_buildinfo (struct pdb_type **ipi_types, struct pdb_type **last_type,
+		     uint16_t count, uint32_t *list)
+{
+  struct pdb_type *t = *ipi_types;
+  struct pdb_buildinfo *build_info;
+
+  while (t) {
+    if (t->cv_type == LF_BUILDINFO) {
+      build_info = (struct pdb_buildinfo*)t->data;
+
+      if (build_info->count == count) {
+	bool found = true;
+
+	for (unsigned int i = 0; i < count; i++) {
+	  if (list[i] != build_info->list[i]) {
+	    found = false;
+	    break;
+	  }
+	}
+
+	if (found)
+	  return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) +
+				offsetof(struct pdb_buildinfo, list) +
+				(count * sizeof(uint32_t)));
+
+  t->next = NULL;
+  t->index = ipi_type_index;
+  t->cv_type = LF_BUILDINFO;
+
+  build_info = (struct pdb_buildinfo*)t->data;
+
+  build_info->count = count;
+
+  for (unsigned int i = 0; i < count; i++) {
+    build_info->list[i] = list[i];
+  }
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*ipi_types)
+    *ipi_types = t;
+
+  ipi_type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type, uint16_t mod,
 		   struct pdb_type **ipi_types, struct pdb_type **last_ipi_type,
@@ -1410,6 +1468,34 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_BUILDINFO:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t count;
+	uint32_t *list = NULL;
+
+	count = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+
+	if (count > 0) {
+	  list = xmalloc (sizeof(uint32_t) * count);
+
+	  for (unsigned int i = 0; i < count; i++) {
+	    list[i] = bfd_getl32(ptr2 + (i * sizeof(uint32_t)));
+
+	    if (list[i] >= FIRST_TYPE_INDEX && list[i] < FIRST_TYPE_INDEX + num_entries)
+	      list[i] = type_list[list[i] - FIRST_TYPE_INDEX];
+	  }
+	}
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] =
+	  find_type_buildinfo(ipi_types, last_ipi_type, count, list);
+
+	if (list)
+	  free(list);
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1709,6 +1795,15 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 	if (len % 4 != 0)
 	  len += 4 - (len % 4);
+
+	break;
+      }
+
+      case LF_BUILDINFO:
+      {
+	struct pdb_buildinfo *buildinfo = (struct pdb_buildinfo *)t->data;
+
+	len += 8 + (buildinfo->count * sizeof(uint32_t));
 
 	break;
       }
@@ -2238,6 +2333,31 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	  *ptr = 0xf1;
 	  ptr++;
 	}
+
+	break;
+      }
+
+      case LF_BUILDINFO:
+      {
+	struct pdb_buildinfo *buildinfo = (struct pdb_buildinfo *)t->data;
+	uint16_t item_len;
+
+	item_len = 8 + (buildinfo->count * sizeof(uint32_t));
+
+	bfd_putl16 (item_len - 2, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_BUILDINFO, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (buildinfo->count, ptr); ptr += sizeof(uint16_t);
+
+	for (unsigned int i = 0; i < buildinfo->count; i++) {
+	  bfd_putl32 (buildinfo->list[i], ptr);
+	  ptr += sizeof(uint32_t);
+	}
+
+	*ptr = 0xf2;
+	ptr++;
+
+	*ptr = 0xf1;
+	ptr++;
 
 	break;
       }

@@ -72,6 +72,7 @@
 #define LF_ENUM				0x1507
 #define LF_MEMBER			0x150d
 #define LF_FUNC_ID			0x1601
+#define LF_BUILDINFO			0x1603
 #define LF_STRING_ID			0x1605
 #define LF_UDT_SRC_LINE			0x1606
 #define LF_UDT_MOD_SRC_LINE		0x1607
@@ -442,6 +443,11 @@ struct pdb_func_id {
   uint16_t scope;
   uint16_t type;
   char name[1];
+};
+
+struct pdb_buildinfo {
+  uint16_t count;
+  uint32_t list[1];
 };
 
 #define NAMES_STREAM_SIGNATURE		0xeffeeffe
