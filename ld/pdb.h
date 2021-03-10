@@ -39,6 +39,14 @@
 #define CV_DEBUG_S_SYMBOLS		0xf1
 
 #define S_PUB32				0x110e
+#define S_LPROC32			0x110f
+#define S_GPROC32			0x1110
+#define S_PROCREF			0x1125
+#define S_LPROCREF			0x1127
+#define S_LPROC32_ID			0x1146
+#define S_GPROC32_ID			0x1147
+#define S_LPROC32_DPC			0x1155
+#define S_LPROC32_DPC_ID		0x1156
 
 struct pdb_superblock {
   char magic[sizeof(PDB_MAGIC)];

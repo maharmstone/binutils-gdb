@@ -154,7 +154,8 @@ create_file_info_substream(bfd *abfd, void **data, uint32_t *length)
 }
 
 static uint16_t
-create_symbol_record_stream (struct pdb_context *ctx, struct pdb_hash_list *publics)
+create_symbol_record_stream (struct pdb_context *ctx, struct pdb_hash_list *publics,
+			     struct pdb_hash_list *globals)
 {
   uint16_t index;
   struct pdb_stream *stream;
@@ -175,12 +176,43 @@ create_symbol_record_stream (struct pdb_context *ctx, struct pdb_hash_list *publ
     ent = ent->next;
   }
 
+  ent = globals->first;
+  while (ent) {
+    if (stream->length % 4 != 0) // align to 32-bit boundary
+      stream->length += 4 - (stream->length % 4);
+
+    stream->length += ent->length;
+
+    ent = ent->next;
+  }
+
   stream->data = xmalloc(stream->length);
 
   memset(stream->data, 0, stream->length);
 
   ent = publics->first;
   ptr = stream->data;
+
+  while (ent) {
+    uint16_t next_entry = bfd_getl16(ent->data);
+
+    memcpy(ptr, ent->data, ent->length);
+
+    if (ent->length % 4 != 0) // align next entry to 32-bit boundary
+      next_entry += 4 - (ent->length % 4);
+
+    next_entry -= sizeof(uint16_t);
+
+    bfd_putl16(next_entry, ptr);
+
+    ent->offset = (uint8_t*)ptr - (uint8_t*)stream->data;
+
+    ptr = ptr + sizeof(uint16_t) + next_entry;
+
+    ent = ent->next;
+  }
+
+  ent = globals->first;
 
   while (ent) {
     uint16_t next_entry = bfd_getl16(ent->data);
@@ -396,9 +428,85 @@ get_section_characteristics(uint32_t sec_flags)
   return styp_flags;
 }
 
+static void
+add_procref (struct pdb_hash_list *list, uint32_t offset, uint16_t module,
+	     const char *name, bool global)
+{
+  size_t name_len = strlen(name);
+  struct pdb_hash_entry *ent;
+  uint8_t *refsym32;
+
+  // payload type is REFSYM32 in cvdump
+
+  ent = xmalloc(offsetof(struct pdb_hash_entry, data) + 15 + name_len);
+  refsym32 = ent->data;
+
+  ent->hash = calc_hash((const uint8_t*)name, name_len);
+  ent->length = 15 + name_len;
+
+  bfd_putl16(ent->length, refsym32); // length
+  bfd_putl16(global ? S_PROCREF : S_LPROCREF, refsym32 + 2); // type
+  bfd_putl32(0, refsym32 + 4); // unknown
+  bfd_putl32(offset, refsym32 + 8); // offset
+  bfd_putl32(module, refsym32 + 12); // module
+
+  memcpy(refsym32 + 14, name, name_len + 1);
+
+  add_hash_entry(list, ent);
+}
+
+static void
+handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num,
+			       struct pdb_hash_list *globals)
+{
+  uint32_t addr = sizeof(uint32_t);
+  uint16_t cv_type, cv_length;
+
+  cv_length = bfd_getl16(data);
+  cv_type = bfd_getl16(data + 2);
+
+  while (length > 0 && length >= sizeof(uint16_t) + cv_length) {
+    switch (cv_type) {
+      case S_LPROC32:
+      case S_GPROC32:
+      case S_LPROC32_ID:
+      case S_GPROC32_ID:
+      case S_LPROC32_DPC:
+      case S_LPROC32_DPC_ID:
+      {
+	const char *name;
+
+	// PROCSYM32 in cvdump
+
+	name = (const char*)(data + 39);
+
+	add_procref (globals, addr, module_num, name,
+		     cv_type == S_GPROC32 || cv_type == S_GPROC32_ID);
+
+	break;
+      }
+    }
+
+    if (length <= cv_length + sizeof(uint16_t))
+      return;
+
+    addr += cv_length + sizeof(uint16_t);
+    length -= cv_length + sizeof(uint16_t);
+
+    if (length < 4)
+      return;
+
+    data += sizeof(uint16_t) + cv_length;
+
+    cv_length = bfd_getl16(data);
+    cv_type = bfd_getl16(data + 2);
+  }
+}
+
 static uint16_t
 create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_size,
-		     uint32_t *c13_lines_size, uint16_t *num_source_files)
+		     uint32_t *c13_lines_size, uint16_t *num_source_files,
+		     uint16_t module_num, struct pdb_hash_list *globals)
 {
   struct bfd_section *sect, *pdb_sect = NULL;
   struct pdb_stream *stream;
@@ -524,6 +632,9 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
   free(contents);
 
+  handle_module_codeview_entries((uint8_t*)stream->data + sizeof(uint32_t),
+				 *symbols_size - sizeof(uint32_t), module_num, globals);
+
   // FIXME - MD5 hashes of files
   // FIXME - num_source_files
 
@@ -533,7 +644,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 }
 
 static void
-create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, uint32_t *length)
+create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, uint32_t *length,
+			      struct pdb_hash_list *globals)
 {
   bfd *in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
   uint8_t *ptr;
@@ -592,7 +704,7 @@ create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, u
     }
 
     module_stream = create_module_stream(ctx, in_bfd, &symbols_size, &c13_lines_size,
-					 &source_file_count);
+					 &source_file_count, index + 1, globals);
 
     bfd_putl16(module_stream, &mod_info->module_stream);
     bfd_putl32(symbols_size, &mod_info->symbols_size);
@@ -779,16 +891,15 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   create_file_info_substream(ctx->abfd, &file_info, &file_info_size);
 
-  create_module_info_substream(ctx, ctx->abfd, &module_info, &module_info_size);
+  create_module_info_substream(ctx, ctx->abfd, &module_info, &module_info_size,
+			       &globals);
 
   create_sections_contribution_substream(ctx->abfd, &section_contributions,
 					 &section_contributions_size);
 
   create_section_map_substream(ctx->abfd, &section_map, &section_map_size);
 
-  // FIXME - populate global streams
-
-  sym_record_stream = create_symbol_record_stream(ctx, &publics);
+  sym_record_stream = create_symbol_record_stream(ctx, &publics, &globals);
 
   public_stream = create_symbol_stream(ctx, &publics, true);
   global_stream = create_symbol_stream(ctx, &globals, false);
