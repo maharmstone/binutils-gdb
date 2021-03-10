@@ -474,6 +474,58 @@ find_type_fieldlist (struct pdb_type **types, struct pdb_type **last_type, struc
   return t->index;
 }
 
+static uint16_t
+find_type_enum (struct pdb_type **types, struct pdb_type **last_type,
+		uint16_t count, uint16_t prop, uint16_t type, uint16_t field,
+		const char *name)
+{
+  struct pdb_type *t = *types;
+  struct pdb_enum *en;
+  size_t name_len;
+
+  while (t) {
+    if (t->cv_type == LF_ENUM) {
+      en = (struct pdb_enum*)t->data;
+
+      if (en->count == count && en->property.value == prop &&
+	  en->type == type && en->field == field && !strcmp(en->name, name)) {
+	return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  name_len = strlen (name);
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) +
+				offsetof(struct pdb_enum, name) + name_len + 1);
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_ENUM;
+
+  en = (struct pdb_enum*)t->data;
+
+  en->count = count;
+  en->property.value = prop;
+  en->type = type;
+  en->field = field;
+  memcpy (en->name, name, name_len + 1);
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
@@ -975,6 +1027,30 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_ENUM:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t count, prop, type, field, enum_type;
+
+	count = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	prop = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	field = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+	  type = type_list[type - FIRST_TYPE_INDEX];
+
+	if (field >= FIRST_TYPE_INDEX && field < FIRST_TYPE_INDEX + num_entries)
+	  field = type_list[field - FIRST_TYPE_INDEX];
+
+	enum_type = find_type_enum(types, last_type, count, prop, type, field,
+				   (char*)ptr2);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = enum_type;
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1220,6 +1296,18 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
       case LF_BITFIELD:
 	len += 12;
       break;
+
+      case LF_ENUM:
+      {
+	struct pdb_enum *en = (struct pdb_enum *)t->data;
+
+	len += 17 + strlen(en->name);
+
+	if (len % 4 != 0)
+	  len += 4 - (len % 4);
+
+	break;
+      }
 
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
@@ -1559,6 +1647,47 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	*ptr = bf->position; ptr++;
 	*ptr = 0xf2; ptr++; // alignment
 	*ptr = 0xf1; ptr++; // alignment
+
+	break;
+      }
+
+      case LF_ENUM: {
+	struct pdb_enum *en = (struct pdb_enum *)t->data;
+	size_t name_len = strlen (en->name);
+	uint16_t item_len;
+	uint8_t align;
+
+	item_len = 17 + name_len;
+
+	align = 4 - (item_len % 4);
+
+	if (align != 4)
+	  item_len += align;
+
+	bfd_putl16 (item_len - 2, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_ENUM, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (en->count, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (en->property.value, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (en->type, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (en->field, ptr); ptr += sizeof(uint32_t);
+
+	memcpy (ptr, en->name, name_len + 1);
+	ptr += name_len + 1;
+
+	if (align != 4) {
+	  if (align == 3) {
+	    *ptr = 0xf3;
+	    ptr++;
+	  }
+
+	  if (align >= 2) {
+	    *ptr = 0xf2;
+	    ptr++;
+	  }
+
+	  *ptr = 0xf1;
+	  ptr++;
+	}
 
 	break;
       }
