@@ -277,6 +277,12 @@ struct section_map_entry {
 #define SECTION_MAP_ENTRY_FLAGS_ABSOLUTE	0x0200
 #define SECTION_MAP_ENTRY_FLAGS_GROUP		0x0400
 
+struct pdb_type {
+  struct pdb_type *next;
+  uint16_t index;
+  uint8_t data[1];
+};
+
 struct pdb_subsection {
   uint32_t type;
   uint32_t length;
