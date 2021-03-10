@@ -199,6 +199,41 @@ struct hash_record_file { // HRFile in cvdump
   uint32_t ref;
 };
 
+struct section_contribution { // SC in cvdump
+  uint16_t section;
+  uint16_t padding1;
+  uint32_t offset;
+  uint32_t size;
+  uint32_t characteristics;
+  uint16_t module_index;
+  uint16_t padding2;
+  uint32_t data_crc;
+  uint32_t reloc_crc;
+};
+
+struct module_info { // MODI_60_Persist in cvdump
+  uint32_t unused1;
+  struct section_contribution sc;
+  uint16_t written : 1;
+  uint16_t ec_enabled : 1;
+  uint16_t unused2 : 6;
+  uint16_t tsm : 8;
+  uint16_t module_stream;
+  uint32_t symbols_size;
+  uint32_t lines_size;
+  uint32_t c13_lines_size;
+  uint16_t source_file_count;
+  uint16_t padding;
+  uint32_t unused3;
+  uint32_t source_file_name_index;
+  uint32_t pdb_file_name_index;
+};
+
+struct file_info_substream {
+  uint16_t num_modules;
+  uint16_t num_source_files;
+};
+
 struct pdb_named_stream_entry {
   uint32_t offset;
   uint32_t stream;

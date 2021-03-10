@@ -127,14 +127,29 @@ add_public_symbols(struct pdb_hash_list *publics, bfd *abfd)
 }
 
 static void
-create_file_info_substream(void **data, uint32_t *length)
+create_file_info_substream(bfd *abfd, void **data, uint32_t *length)
 {
-  // FIXME - do this properly
+  unsigned int num_modules = 0;
+  struct file_info_substream *fis;
+  bfd *in_bfd;
 
-  *length = sizeof(uint32_t);
+  in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
+
+  while (in_bfd) {
+    num_modules++;
+    in_bfd = in_bfd->link.next;
+  }
+
+  *length = sizeof(struct file_info_substream) + (num_modules * sizeof(uint32_t)) + 1;
   *data = xmalloc(*length);
 
   memset(*data, 0, *length);
+
+  fis = (struct file_info_substream *)*data;
+
+  bfd_putl16(num_modules, &fis->num_modules);
+
+  // FIXME - set file counts
 }
 
 static uint16_t
@@ -323,12 +338,84 @@ create_symbol_stream (struct pdb_context *ctx, struct pdb_hash_list *list)
   return stream_index;
 }
 
+static void
+create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
+{
+  bfd *in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
+  uint8_t *ptr;
+  uint16_t index;
+
+  *length = 0;
+
+  while (in_bfd) {
+    size_t name_len = strlen(in_bfd->filename);
+
+    *length += sizeof(struct module_info) + name_len + 1;
+
+    if (in_bfd->my_archive)
+      *length += strlen(in_bfd->my_archive->filename) + 1;
+    else
+      *length += name_len + 1;
+
+    if (*length % 4 != 0) // align to 32-bit boundary
+      *length += 4 - (*length % 4);
+
+    in_bfd = in_bfd->link.next;
+  }
+
+  *data = xmalloc(*length);
+  memset(*data, 0, *length);
+
+  ptr = *data;
+  index = 1;
+  in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
+
+  while (in_bfd) {
+    size_t name_len = strlen(in_bfd->filename);
+    struct module_info *mod_info = (struct module_info *)ptr;
+
+    // FIXME - do section contributions properly
+    bfd_putl16(0xffff, &mod_info->sc.section);
+//     uint32_t offset;
+    bfd_putl32(0xffffffff, &mod_info->sc.size);
+//     uint32_t characteristics;
+    bfd_putl16(index, &mod_info->sc.module_index);
+//     uint32_t data_crc;
+
+    bfd_putl16(0xffff, &mod_info->module_stream); // FIXME
+    bfd_putl32(0, &mod_info->symbols_size); // FIXME
+    bfd_putl32(0, &mod_info->c13_lines_size); // FIXME
+    bfd_putl16(0, &mod_info->source_file_count);// FIXME (get from gcc)
+
+    ptr += sizeof(struct module_info);
+
+    memcpy(ptr, in_bfd->filename, name_len + 1);
+    ptr += name_len + 1;
+
+    if (in_bfd->my_archive) {
+      name_len = strlen(in_bfd->my_archive->filename);
+
+      memcpy(ptr, in_bfd->my_archive->filename, name_len + 1);
+      ptr += name_len + 1;
+    } else {
+      memcpy(ptr, in_bfd->filename, name_len + 1);
+      ptr += name_len + 1;
+    }
+
+    if ((ptr - (uint8_t*)*data) % 4 != 0) // align to 32-bit boundary
+      ptr += 4 - ((ptr - (uint8_t*)*data) % 4);
+
+    in_bfd = in_bfd->link.next;
+    index++;
+  }
+}
+
 void
 create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 {
   struct dbi_stream_header *h;
-  void *optional_dbg_header = NULL, *file_info = NULL;
-  uint32_t optional_dbg_header_size = 0, file_info_size = 0;
+  void *optional_dbg_header = NULL, *file_info = NULL, *module_info = NULL;
+  uint32_t optional_dbg_header_size = 0, file_info_size = 0, module_info_size = 0;
   uint16_t sym_record_stream, public_stream;
   uint8_t *ptr;
   struct pdb_hash_list publics;
@@ -339,14 +426,16 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   create_optional_dbg_header(ctx, &optional_dbg_header, &optional_dbg_header_size);
 
-  create_file_info_substream(&file_info, &file_info_size);
+  create_file_info_substream(ctx->abfd, &file_info, &file_info_size);
+
+  create_module_info_substream(ctx->abfd, &module_info, &module_info_size);
 
   sym_record_stream = create_symbol_record_stream(ctx, &publics);
 
   public_stream = create_symbol_stream(ctx, &publics);
 
   stream->length = sizeof(struct dbi_stream_header) + optional_dbg_header_size +
-		   file_info_size;
+		   file_info_size + module_info_size;
   stream->data = xmalloc(stream->length);
 
   h = (struct dbi_stream_header*)stream->data;
@@ -360,7 +449,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl16(0, &h->pdb_dll_version);
   bfd_putl16(sym_record_stream, &h->sym_record_stream);
   bfd_putl16(0, &h->pdb_dll_rbld);
-  bfd_putl32(0, &h->mod_info_size); // FIXME
+  bfd_putl32(module_info_size, &h->mod_info_size);
   bfd_putl32(0, &h->section_contribution_size); // FIXME
   bfd_putl32(0, &h->section_map_size); // FIXME
   bfd_putl32(file_info_size, &h->source_info_size);
@@ -384,7 +473,12 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   // FIXME - global stream
 
-  // FIXME - module info
+  if (module_info) {
+    memcpy(ptr, module_info, module_info_size);
+    ptr += module_info_size;
+    free(module_info);
+  }
+
   // FIXME - section contribution
   // FIXME - section map
 
