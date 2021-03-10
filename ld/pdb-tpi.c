@@ -95,6 +95,47 @@ crc32 (uint8_t *data, size_t len)
 }
 
 static uint16_t
+find_type_modifier (struct pdb_type **types, struct pdb_type **last_type, uint16_t type, uint16_t modifier)
+{
+  struct pdb_type *t = *types;
+  struct pdb_modifier *mod;
+
+  while (t) {
+    if (t->cv_type == LF_MODIFIER) {
+      mod = (struct pdb_modifier*)t->data;
+
+      if (mod->type == type && mod->modifier == modifier)
+	return t->index;
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + sizeof(struct pdb_modifier));
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_MODIFIER;
+
+  mod = (struct pdb_modifier*)t->data;
+
+  mod->type = type;
+  mod->modifier = modifier;
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
+static uint16_t
 find_type_pointer (struct pdb_type **types, struct pdb_type **last_type, uint16_t type, uint32_t attr)
 {
   struct pdb_type *t = *types;
@@ -207,6 +248,23 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
     cv_type = bfd_getl16(ptr);
 
     switch (cv_type) {
+      case LF_MODIFIER: {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t type, modifier, modifier_type;
+
+	type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	modifier = bfd_getl16(ptr2);
+
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+	  type = type_list[type - FIRST_TYPE_INDEX];
+
+	modifier_type = find_type_modifier(types, last_type, type, modifier);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = modifier_type;
+
+	break;
+      }
+
       case LF_POINTER: {
 	uint8_t *ptr2 = ptr + sizeof(uint16_t);
 	uint16_t type, ptr_type;
@@ -382,6 +440,7 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
   while (t) {
     switch (t->cv_type) {
       case LF_POINTER:
+      case LF_MODIFIER:
 	len += 12;
       break;
 
@@ -425,6 +484,17 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	bfd_putl16 (LF_POINTER, ptr); ptr += sizeof(uint16_t);
 	bfd_putl32 (ptr2->type, ptr); ptr += sizeof(uint32_t);
 	bfd_putl32 (ptr2->attr, ptr); ptr += sizeof(uint32_t);
+
+	break;
+      }
+
+      case LF_MODIFIER: {
+	struct pdb_modifier *mod = (struct pdb_modifier *)t->data;
+
+	bfd_putl16 (10, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_MODIFIER, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (mod->type, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (mod->modifier, ptr); ptr += sizeof(uint32_t);
 
 	break;
       }

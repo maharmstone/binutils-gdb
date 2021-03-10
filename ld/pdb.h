@@ -41,6 +41,7 @@
 #define CV_DEBUG_S_STRINGTABLE		0xf3
 #define CV_DEBUG_S_FILECHKSMS		0xf4
 
+#define LF_MODIFIER			0x1001
 #define LF_POINTER			0x1002
 #define S_BLOCK32			0x1103
 #define S_LDATA32			0x110c
@@ -369,6 +370,11 @@ struct pdb_subsection_lines {
   uint16_t segment;
   uint16_t flags;
   uint32_t length;
+};
+
+struct pdb_modifier { // lfModifier in cvdump
+  uint16_t type;
+  uint16_t modifier;
 };
 
 struct pdb_named_stream_entry {
