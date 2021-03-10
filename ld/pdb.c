@@ -36,6 +36,9 @@
 #include "ld.h"
 #include "ldmisc.h"
 
+struct pdb_string *strings = NULL;
+unsigned int strings_buf_len = 0;
+
 uint32_t
 calc_hash(const uint8_t* data, size_t len) {
   uint32_t hash = 0;
@@ -518,11 +521,121 @@ create_pdb_info_stream (struct pdb_context *ctx, struct pdb_stream *stream, cons
   free_rollover_hash_list(&named_stream_hash_list);
 }
 
+static unsigned int
+add_pdb_string (const char *str)
+{
+  size_t len = strlen(str);
+  uint32_t hash = calc_hash((const uint8_t*)str, len);
+  struct pdb_string *s = strings, *prev = NULL;
+
+  while (s) {
+    if (s->hash == hash && !strcmp(s->string, str))
+      return s->offset;
+
+    if (s->hash > hash)
+      break;
+
+    prev = s;
+    s = s->next;
+  }
+
+  s = (struct pdb_string*)xmalloc(offsetof(struct pdb_string, string) + len + 1);
+
+  s->offset = strings_buf_len;
+  s->hash = hash;
+  memcpy(s->string, str, len + 1);
+
+  if (!prev) {
+    s->next = strings;
+    strings = s;
+  } else {
+    s->next = prev->next;
+    prev->next = s;
+  }
+
+  strings_buf_len += len + 1;
+
+  return s->offset;
+}
+
+static void
+populate_names_stream (struct pdb_stream *stream)
+{
+  struct pdb_string *s;
+  struct pdb_names_stream_header *h;
+  unsigned int num_strings = 0, num_buckets;
+  uint8_t *buf;
+  uint32_t *num_buckets_ptr, *buckets;
+  struct pdb_rollover_hash_list hash_list;
+
+  s = strings;
+  while (s) {
+    num_strings++;
+    s = s->next;
+  }
+
+  num_buckets = num_strings * 2;
+
+  stream->length = sizeof(struct pdb_names_stream_header) + strings_buf_len + sizeof(uint32_t) +
+		   (num_buckets * sizeof(uint32_t)) + sizeof(uint32_t);
+  stream->data = xmalloc(stream->length);
+
+  h = (struct pdb_names_stream_header*)stream->data;
+
+  bfd_putl32(NAMES_STREAM_SIGNATURE, &h->signature);
+  bfd_putl32(NAMES_STREAM_VERSION, &h->version);
+  bfd_putl32(strings_buf_len, &h->buf_len);
+
+  buf = (uint8_t*)&h[1];
+
+  init_rollover_hash_list (&hash_list, num_buckets);
+
+  s = strings;
+  while (s) {
+    struct pdb_rollover_hash_entry *ent;
+
+    memcpy(buf + s->offset, s->string, strlen(s->string) + 1);
+
+    ent = xmalloc(offsetof(struct pdb_rollover_hash_entry, data) + sizeof(uint32_t));
+
+    ent->hash = s->hash;
+    ent->length = sizeof(uint32_t);
+    *(uint32_t*)ent->data = s->offset;
+
+    add_rollover_hash_entry(&hash_list, ent);
+
+    s = s->next;
+  }
+
+  num_buckets_ptr = (uint32_t*)((uint8_t*)h + sizeof(struct pdb_names_stream_header) + strings_buf_len);
+  bfd_putl32(num_buckets, num_buckets_ptr);
+
+  buckets = num_buckets_ptr + 1;
+
+  memset(buckets, 0, sizeof(uint32_t) * num_buckets);
+
+  for (unsigned int i = 0; i < hash_list.num_buckets; i++) {
+    if (hash_list.buckets[i])
+      bfd_putl32(*(uint32_t*)hash_list.buckets[i]->data, &buckets[i]);
+  }
+
+  while (strings) {
+    s = strings->next;
+    free(strings);
+    strings = s;
+  }
+
+  bfd_putl32(num_strings, &buckets[num_buckets]);
+
+  free_rollover_hash_list (&hash_list);
+}
+
 void
 create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 {
   struct pdb_context ctx;
-  struct pdb_stream *pdb_info_stream, *tpi_stream, *dbi_stream, *ipi_stream;
+  struct pdb_stream *pdb_info_stream, *tpi_stream, *dbi_stream, *ipi_stream,
+		    *names_stream;
   unsigned int num_modules = 0;
   bfd *in_bfd;
   struct pdb_mod_type_info *type_info;
@@ -548,8 +661,6 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   ctx.num_blocks = 3; // for superblock and two free block maps
 
-  // FIXME - write streams etc.
-
   add_stream(&ctx, NULL); // old directory (FIXME?)
 
   add_stream(&ctx, NULL);
@@ -565,7 +676,10 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
   ipi_stream = ctx.last_stream;
 
   add_stream(&ctx, "/LinkInfo");
+
   add_stream(&ctx, "/names");
+  names_stream = ctx.last_stream;
+  add_pdb_string("");
 
   create_pdb_info_stream(&ctx, pdb_info_stream, guid);
 
@@ -576,6 +690,8 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
   create_dbi_stream(&ctx, dbi_stream);
 
   free(type_info);
+
+  populate_names_stream(names_stream);
 
   prepare_stream_directory(&ctx);
 

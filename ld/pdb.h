@@ -314,6 +314,22 @@ struct pdb_mod_type_info {
   unsigned int num_entries;
 };
 
+struct pdb_string {
+  struct pdb_string *next;
+  unsigned int offset;
+  uint32_t hash;
+  char string[1];
+};
+
+#define NAMES_STREAM_SIGNATURE		0xeffeeffe
+#define NAMES_STREAM_VERSION		1
+
+struct pdb_names_stream_header {
+  uint32_t signature;
+  uint32_t version;
+  uint32_t buf_len;
+};
+
 struct pdb_subsection {
   uint32_t type;
   uint32_t length;
