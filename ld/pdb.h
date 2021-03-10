@@ -41,6 +41,7 @@
 #define CV_DEBUG_S_STRINGTABLE		0xf3
 #define CV_DEBUG_S_FILECHKSMS		0xf4
 
+#define S_BLOCK32			0x1103
 #define S_LDATA32			0x110c
 #define S_GDATA32			0x110d
 #define S_PUB32				0x110e

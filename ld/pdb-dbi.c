@@ -591,6 +591,28 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
 	add_data32 (globals, type, off, seg, name, cv_type == S_GDATA32);
 	break;
       }
+
+      case S_BLOCK32:
+      {
+	uint32_t end, parent;
+
+	// BLOCKSYM32 in cvdump
+
+	parent = bfd_getl32(data + 4);
+	if (parent != 0) {
+	  parent += offset;
+	  bfd_putl32(parent, data + 4);
+	}
+
+	end = bfd_getl32(data + 8);
+
+	if (end != 0) {
+	  end += offset;
+	  bfd_putl32(end, data + 8);
+	}
+
+	break;
+      }
     }
 
     if (length <= cv_length + sizeof(uint16_t))
