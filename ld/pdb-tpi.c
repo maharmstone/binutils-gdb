@@ -25,6 +25,7 @@
 #include "coff/internal.h"
 #include "coff/pe.h"
 #include "libcoff.h"
+#include <stdbool.h>
 
 #define NUM_TPI_HASH_BUCKETS 0x3ffff
 
@@ -156,6 +157,30 @@ load_module_types (bfd *in_bfd)
   free(contents);
 }
 
+static bool
+is_name_anonymous (const char *name)
+{
+  size_t len;
+
+  // see fUDTAnon in cvdump
+
+  static const char un1[] = "::<unnamed-tag>";
+  static const char un2[] = "::__unnamed";
+
+  if (!strcmp(name, "<unnamed-tag>") || !strcmp(name, "__unnamed"))
+    return true;
+
+  len = strlen(name);
+
+  if (len >= sizeof(un1) - 1 && !memcmp(name + len - sizeof(un1) + 1, un1, sizeof(un1) - 1))
+    return true;
+
+  if (len >= sizeof(un2) - 1 && !memcmp(name + len - sizeof(un2) + 1, un1, sizeof(un2) - 1))
+    return true;
+
+  return false;
+}
+
 static void
 create_type_hash_stream (struct pdb_stream *stream, unsigned int num_types,
 			 uint32_t *hash_value_buffer_length, uint32_t *index_offset_buffer_length,
@@ -175,12 +200,72 @@ create_type_hash_stream (struct pdb_stream *stream, unsigned int num_types,
   ptr = stream->data;
 
   while (len >= 4) {
-    uint16_t record_length;
+    bool other_hash = false;
+    uint16_t record_length, record_type;
     uint32_t hash;
 
     record_length = bfd_getl16(data);
+    record_type = bfd_getl16(data + sizeof(uint16_t));
 
-    hash = crc32(data, record_length + sizeof(uint16_t));
+    switch (record_type) {
+      case LF_CLASS:
+      case LF_STRUCTURE:
+      {
+	struct codeview_property prop;
+
+	prop.value = bfd_getl16(data + 6);
+
+	if (!prop.fwdref && !prop.scoped) {
+	  const char *name = (const char*)(data + 22);
+
+	  if (!is_name_anonymous(name)) {
+	    hash = calc_hash((const uint8_t*)name, strlen(name));
+	    other_hash = true;
+	  }
+	}
+
+	break;
+      }
+
+      case LF_UNION:
+      {
+	struct codeview_property prop;
+
+	prop.value = bfd_getl16(data + 6);
+
+	if (!prop.fwdref && !prop.scoped) {
+	  const char *name = (const char*)(data + 14);
+
+	  if (!is_name_anonymous(name)) {
+	    hash = calc_hash((const uint8_t*)name, strlen(name));
+	    other_hash = true;
+	  }
+	}
+
+	break;
+      }
+
+      case LF_ENUM:
+      {
+	struct codeview_property prop;
+
+	prop.value = bfd_getl16(data + 6);
+
+	if (!prop.fwdref && !prop.scoped) {
+	  const char *name = (const char*)(data + 16);
+
+	  if (!is_name_anonymous(name)) {
+	    hash = calc_hash((const uint8_t*)name, strlen(name));
+	    other_hash = true;
+	  }
+	}
+
+	break;
+      }
+    }
+
+    if (!other_hash)
+      hash = crc32(data, record_length + sizeof(uint16_t));
 
     hash %= NUM_TPI_HASH_BUCKETS;
 

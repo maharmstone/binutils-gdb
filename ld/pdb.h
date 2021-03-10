@@ -49,6 +49,10 @@
 #define S_GPROC32_ID			0x1147
 #define S_LPROC32_DPC			0x1155
 #define S_LPROC32_DPC_ID		0x1156
+#define LF_CLASS			0x1504
+#define LF_STRUCTURE			0x1505
+#define LF_UNION			0x1506
+#define LF_ENUM				0x1507
 
 struct pdb_superblock {
   char magic[sizeof(PDB_MAGIC)];
@@ -281,6 +285,28 @@ struct pdb_type {
   struct pdb_type *next;
   uint16_t index;
   uint8_t data[1];
+};
+
+struct codeview_property { // CV_prop_t in cvdump
+  union {
+    uint16_t value;
+    struct {
+      uint16_t packed : 1;
+      uint16_t ctor : 1;
+      uint16_t ovlops : 1;
+      uint16_t isnested : 1;
+      uint16_t cnested : 1;
+      uint16_t opassign : 1;
+      uint16_t opcast : 1;
+      uint16_t fwdref : 1;
+      uint16_t scoped : 1;
+      uint16_t hasuniquename : 1;
+      uint16_t sealed : 1;
+      uint16_t hfa : 2;
+      uint16_t intrinsic : 1;
+      uint16_t mocom : 2;
+    };
+  };
 };
 
 struct pdb_subsection {
