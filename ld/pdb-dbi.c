@@ -484,7 +484,7 @@ add_data32 (struct pdb_hash_list *list, uint32_t type, uint32_t off,
 
 static void
 handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num,
-			       struct pdb_hash_list *globals)
+			       struct pdb_hash_list *globals, int32_t offset)
 {
   uint32_t addr = sizeof(uint32_t);
   uint16_t cv_type, cv_length;
@@ -501,9 +501,17 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
       case S_LPROC32_DPC:
       case S_LPROC32_DPC_ID:
       {
+	uint32_t end;
 	const char *name;
 
 	// PROCSYM32 in cvdump
+
+	end = bfd_getl32(data + 8);
+
+	if (end != 0) {
+	  end += offset;
+	  bfd_putl32(end, data + 8);
+	}
 
 	name = (const char*)(data + 39);
 
@@ -667,6 +675,10 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
     if (type == CV_DEBUG_S_SYMBOLS) {
       memcpy(ptr, (uint8_t*)subsect + sizeof(struct pdb_subsection), length);
+
+      handle_module_codeview_entries(ptr, length, module_num, globals,
+				     (ptr - (uint8_t*)stream->data) - ((uint8_t*)subsect - (uint8_t*)contents) - sizeof(struct pdb_subsection));
+
       ptr += length;
     }
 
@@ -678,9 +690,6 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   }
 
   free(contents);
-
-  handle_module_codeview_entries((uint8_t*)stream->data + sizeof(uint32_t),
-				 *symbols_size - sizeof(uint32_t), module_num, globals);
 
   // FIXME - MD5 hashes of files
   // FIXME - num_source_files
