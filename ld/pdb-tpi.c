@@ -579,6 +579,52 @@ find_type_union (struct pdb_type **types, struct pdb_type **last_type,
   return t->index;
 }
 
+static uint16_t
+find_type_array (struct pdb_type **types, struct pdb_type **last_type,
+		 uint16_t type, uint16_t index_type, uint16_t length)
+{
+  struct pdb_type *t = *types;
+  struct pdb_array *arr;
+
+  while (t) {
+    if (t->cv_type == LF_ARRAY) {
+      arr = (struct pdb_array*)t->data;
+
+      if (arr->type == type && arr->index_type == index_type &&
+	  arr->length == length) {
+	return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) +
+				sizeof(struct pdb_array));
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_ARRAY;
+
+  arr = (struct pdb_array*)t->data;
+
+  arr->type = type;
+  arr->index_type = index_type;
+  arr->length = length;
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
@@ -1125,6 +1171,27 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_ARRAY:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t type, index_type, length;
+
+	type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	index_type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	length = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+	  type = type_list[type - FIRST_TYPE_INDEX];
+
+	if (index_type >= FIRST_TYPE_INDEX && index_type < FIRST_TYPE_INDEX + num_entries)
+	  index_type = type_list[index_type - FIRST_TYPE_INDEX];
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] =
+	  find_type_array(types, last_type, type, index_type, length);
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1394,6 +1461,10 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 	break;
       }
+
+      case LF_ARRAY:
+	len += 16;
+      break;
 
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
@@ -1815,6 +1886,21 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	  *ptr = 0xf1;
 	  ptr++;
 	}
+
+	break;
+      }
+
+      case LF_ARRAY: {
+	struct pdb_array *arr = (struct pdb_array *)t->data;
+
+	bfd_putl16 (14, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_ARRAY, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (arr->type, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (arr->index_type, ptr); ptr += sizeof(uint32_t);
+	bfd_putl16 (arr->length, ptr); ptr += sizeof(uint16_t);
+
+	*ptr = 0; ptr++; // zero-length name
+	*ptr = 0xf1; ptr++; // alignment
 
 	break;
       }

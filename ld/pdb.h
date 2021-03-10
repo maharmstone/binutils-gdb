@@ -61,6 +61,7 @@
 #define LF_BITFIELD			0x1205
 #define LF_INDEX			0x1404
 #define LF_ENUMERATE			0x1502
+#define LF_ARRAY			0x1503
 #define LF_CLASS			0x1504
 #define LF_STRUCTURE			0x1505
 #define LF_UNION			0x1506
@@ -367,6 +368,12 @@ struct pdb_proc { // lfProcedure in cvdump
   uint8_t attributes;
   uint16_t num_args;
   uint16_t arg_list;
+};
+
+struct pdb_array { // lfArray in cvdump
+  uint16_t type;
+  uint16_t index_type;
+  uint16_t length;
 };
 
 struct pdb_arglist { // lfArgList in cvdump
