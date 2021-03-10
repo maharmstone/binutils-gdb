@@ -41,6 +41,7 @@
 #define CV_DEBUG_S_STRINGTABLE		0xf3
 #define CV_DEBUG_S_FILECHKSMS		0xf4
 
+#define LF_POINTER			0x1002
 #define S_BLOCK32			0x1103
 #define S_LDATA32			0x110c
 #define S_GDATA32			0x110d
@@ -288,6 +289,7 @@ struct section_map_entry {
 struct pdb_type {
   struct pdb_type *next;
   uint16_t index;
+  uint16_t cv_type;
   uint8_t data[1];
 };
 
@@ -311,6 +313,11 @@ struct codeview_property { // CV_prop_t in cvdump
       uint16_t mocom : 2;
     };
   };
+};
+
+struct pdb_pointer { // lfPointer in cvdump
+  uint16_t type;
+  uint32_t attr;
 };
 
 struct pdb_mod_type_info {

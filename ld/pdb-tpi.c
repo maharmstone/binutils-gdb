@@ -25,6 +25,8 @@
 #include "coff/internal.h"
 #include "coff/pe.h"
 #include "libcoff.h"
+#include "ld.h"
+#include "ldmisc.h"
 #include <stdbool.h>
 
 #define NUM_TPI_HASH_BUCKETS 0x3ffff
@@ -92,6 +94,47 @@ crc32 (uint8_t *data, size_t len)
   return crc;
 }
 
+static uint16_t
+find_type_pointer (struct pdb_type **types, struct pdb_type **last_type, uint16_t type, uint32_t attr)
+{
+  struct pdb_type *t = *types;
+  struct pdb_pointer *ptr;
+
+  while (t) {
+    if (t->cv_type == LF_POINTER) {
+      ptr = (struct pdb_pointer*)t->data;
+
+      if (ptr->type == type && ptr->attr == attr)
+	return t->index;
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + sizeof(struct pdb_pointer));
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_POINTER;
+
+  ptr = (struct pdb_pointer*)t->data;
+
+  ptr->type = type;
+  ptr->attr = attr;
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
@@ -99,6 +142,9 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
   bfd_byte *contents = NULL;
   uint8_t *ptr;
   uint32_t len;
+  uint16_t mod_type_index;
+  uint16_t *type_list;
+  unsigned int num_entries = 0;
 
   sect = in_bfd->sections;
   while (sect) {
@@ -129,29 +175,66 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 
   while (len >= 4) {
     uint16_t cv_length = bfd_getl16(ptr);
-    struct pdb_type *t;
+
+    num_entries++;
+
+    ptr += sizeof(uint16_t) + cv_length;
+    len -= sizeof(uint16_t) + cv_length;
+  }
+
+  if (num_entries == 0) {
+    free(contents);
+    return;
+  }
+
+  type_list = (uint16_t*)xmalloc(num_entries * sizeof(uint16_t));
+  memset(type_list, 0, num_entries * sizeof(uint16_t));
+
+  len = pdb_sect->size - sizeof(uint32_t);
+  ptr = (uint8_t*)contents + sizeof(uint32_t);
+  mod_type_index = FIRST_TYPE_INDEX;
+
+  while (len >= 4) {
+    uint16_t cv_length, cv_type;
+
+    cv_length = bfd_getl16(ptr);
 
     if (len < sizeof(uint16_t) + cv_length)
       break;
 
-    t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + sizeof(uint16_t) + cv_length);
+    ptr += sizeof(uint16_t);
 
-    t->next = NULL;
-    t->index = type_index;
-    memcpy(t->data, ptr, sizeof(uint16_t) + cv_length);
+    cv_type = bfd_getl16(ptr);
 
-    if (*last_type)
-      (*last_type)->next = t;
+    switch (cv_type) {
+      case LF_POINTER: {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t type, ptr_type;
+	uint32_t attr;
 
-    *last_type = t;
+	type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	attr = bfd_getl32(ptr2);
 
-    if (!*types)
-      *types = t;
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+	  type = type_list[type - FIRST_TYPE_INDEX];
 
-    ptr += sizeof(uint16_t) + cv_length;
+	ptr_type = find_type_pointer(types, last_type, type, attr);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = ptr_type;
+
+	break;
+      }
+
+      default:
+	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
+    }
+
+    ptr += cv_length;
     len -= sizeof(uint16_t) + cv_length;
-    type_index++;
+    mod_type_index++;
   }
+
+  free(type_list);
 
   free(contents);
 }
@@ -297,10 +380,16 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
   t = types;
   while (t) {
-    uint16_t cv_length = bfd_getl16(t->data);
+    switch (t->cv_type) {
+      case LF_POINTER:
+	len += 12;
+      break;
+
+      default:
+	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
+    }
 
     num_types++;
-    len += cv_length + sizeof(uint16_t);
 
     t = t->next;
   }
@@ -328,11 +417,21 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
   t = types;
   while (t) {
-    uint16_t cv_length = bfd_getl16(t->data);
+    switch (t->cv_type) {
+      case LF_POINTER: {
+	struct pdb_pointer *ptr2 = (struct pdb_pointer *)t->data;
 
-    memcpy(ptr, t->data, cv_length + sizeof(uint16_t));
+	bfd_putl16 (10, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_POINTER, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (ptr2->type, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (ptr2->attr, ptr); ptr += sizeof(uint32_t);
 
-    ptr += cv_length + sizeof(uint16_t);
+	break;
+      }
+
+      default:
+	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
+    }
 
     t = t->next;
   }
