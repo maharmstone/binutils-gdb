@@ -25,6 +25,7 @@
 #include "coff/internal.h"
 #include "coff/pe.h"
 #include "libcoff.h"
+#include <stdbool.h>
 
 #define NUM_SYMBOL_BUCKETS 4096
 
@@ -231,18 +232,16 @@ pub32_addr_compare(const void *s1, const void* s2)
 }
 
 static uint16_t
-create_symbol_stream (struct pdb_context *ctx, struct pdb_hash_list *list)
+create_symbol_stream (struct pdb_context *ctx, struct pdb_hash_list *list, bool include_header)
 {
   uint16_t stream_index;
   struct pdb_stream *stream;
   uint32_t num_entries, num_buckets;
   struct pdb_hash_entry *ent;
-  struct gsi_header *header;
   struct gsi_hash_header *hash_header;
   struct hash_record_file *hrf;
   uint8_t *bmp;
-  uint32_t *bucket_offs, *addr_map;
-  struct pdb_hash_entry **ents_sorted;
+  uint32_t *bucket_offs;
 
   stream_index = ctx->num_streams;
   add_stream(ctx, NULL);
@@ -263,18 +262,26 @@ create_symbol_stream (struct pdb_context *ctx, struct pdb_hash_list *list)
       num_buckets++;
   }
 
-  stream->length = sizeof(struct gsi_header) + sizeof(struct gsi_hash_header) +
-		   (num_entries * sizeof(struct hash_record_file)) + (num_buckets * sizeof(uint32_t)) +
-		   (list->num_buckets / 8) + sizeof(uint32_t) + (num_entries * sizeof(uint32_t));
+  stream->length = sizeof(struct gsi_hash_header) + (num_entries * sizeof(struct hash_record_file)) +
+		   (num_buckets * sizeof(uint32_t)) + (list->num_buckets / 8) + sizeof(uint32_t);
+
+  if (include_header)
+    stream->length += sizeof(struct gsi_header) + (num_entries * sizeof(uint32_t));
+
   stream->data = xmalloc(stream->length);
   memset(stream->data, 0, stream->length);
 
-  header = (struct gsi_header*)stream->data;
-  bfd_putl32(stream->length - sizeof(struct gsi_header) - (num_entries * sizeof(uint32_t)),
-	     &header->sym_hash_length);
-  bfd_putl32(num_entries * sizeof(uint32_t), &header->addr_map_length);
+  if (include_header) {
+    struct gsi_header *header = (struct gsi_header*)stream->data;
 
-  hash_header = (struct gsi_hash_header*)&header[1];
+    bfd_putl32(stream->length - sizeof(struct gsi_header) - (num_entries * sizeof(uint32_t)),
+	       &header->sym_hash_length);
+    bfd_putl32(num_entries * sizeof(uint32_t), &header->addr_map_length);
+
+    hash_header = (struct gsi_hash_header*)&header[1];
+  } else
+    hash_header = (struct gsi_hash_header*)stream->data;
+
   bfd_putl32(0xffffffff, &hash_header->signature);
   bfd_putl32(GSI_HASH_VERSION_V70, &hash_header->version);
   bfd_putl32(num_entries * sizeof(struct hash_record_file), &hash_header->data_length);
@@ -315,25 +322,30 @@ create_symbol_stream (struct pdb_context *ctx, struct pdb_hash_list *list)
     }
   }
 
-  addr_map = bucket_offs;
+  if (include_header) {
+    uint32_t *addr_map;
+    struct pdb_hash_entry **ents_sorted;
 
-  ents_sorted = xmalloc(sizeof(struct pdb_hash_entry*) * num_entries);
+    addr_map = bucket_offs;
 
-  ent = list->first;
-  for (unsigned int i = 0; i < num_entries; i++) {
-    ents_sorted[i] = ent;
-    ent = ent->next;
+    ents_sorted = xmalloc(sizeof(struct pdb_hash_entry*) * num_entries);
+
+    ent = list->first;
+    for (unsigned int i = 0; i < num_entries; i++) {
+      ents_sorted[i] = ent;
+      ent = ent->next;
+    }
+
+    qsort(ents_sorted, num_entries, sizeof(struct pdb_hash_entry*), pub32_addr_compare);
+
+    for (unsigned int i = 0; i < num_entries; i++) {
+      bfd_putl32(ents_sorted[i]->offset, addr_map);
+
+      addr_map++;
+    }
+
+    free(ents_sorted);
   }
-
-  qsort(ents_sorted, num_entries, sizeof(struct pdb_hash_entry*), pub32_addr_compare);
-
-  for (unsigned int i = 0; i < num_entries; i++) {
-    bfd_putl32(ents_sorted[i]->offset, addr_map);
-
-    addr_map++;
-  }
-
-  free(ents_sorted);
 
   return stream_index;
 }
@@ -754,11 +766,12 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   void *section_contributions = NULL, *section_map = NULL;
   uint32_t optional_dbg_header_size = 0, file_info_size = 0, module_info_size = 0;
   uint32_t section_contributions_size = 0, section_map_size = 0;
-  uint16_t sym_record_stream, public_stream;
+  uint16_t sym_record_stream, public_stream, global_stream;
   uint8_t *ptr;
-  struct pdb_hash_list publics;
+  struct pdb_hash_list publics, globals;
 
   init_hash_list(&publics, NUM_SYMBOL_BUCKETS);
+  init_hash_list(&globals, NUM_SYMBOL_BUCKETS);
 
   add_public_symbols(&publics, ctx->abfd);
 
@@ -773,9 +786,12 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   create_section_map_substream(ctx->abfd, &section_map, &section_map_size);
 
+  // FIXME - populate global streams
+
   sym_record_stream = create_symbol_record_stream(ctx, &publics);
 
-  public_stream = create_symbol_stream(ctx, &publics);
+  public_stream = create_symbol_stream(ctx, &publics, true);
+  global_stream = create_symbol_stream(ctx, &globals, false);
 
   stream->length = sizeof(struct dbi_stream_header) + optional_dbg_header_size +
 		   file_info_size + module_info_size + section_contributions_size +
@@ -787,7 +803,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl32(0xffffffff, &h->version_signature);
   bfd_putl32(dbi_stream_version_v70, &h->version_header);
   bfd_putl32(1, &h->age);
-  bfd_putl16(0xffff, &h->global_stream_index); // FIXME
+  bfd_putl16(global_stream, &h->global_stream_index);
   bfd_putl16(0x8a0a, &h->build_number); // claim to be MSVC 10.10
   bfd_putl16(public_stream, &h->public_stream_index);
   bfd_putl16(0, &h->pdb_dll_version);
@@ -814,8 +830,6 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl32(0, &h->padding);
 
   ptr = (uint8_t*)stream->data + sizeof(struct dbi_stream_header);
-
-  // FIXME - global stream
 
   if (module_info) {
     memcpy(ptr, module_info, module_info_size);
@@ -847,4 +861,5 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   }
 
   free_hash_list (&publics);
+  free_hash_list (&globals);
 }
