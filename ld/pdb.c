@@ -32,7 +32,7 @@
 #include <time.h>
 #include "libiberty.h"
 
-static uint32_t
+uint32_t
 calc_hash(const uint8_t* data, size_t len) {
   uint32_t hash = 0;
 
@@ -57,6 +57,17 @@ calc_hash(const uint8_t* data, size_t len) {
   return hash ^ (hash >> 16);
 }
 
+void
+init_hash_list (struct pdb_hash_list *list, unsigned int num_buckets)
+{
+  list->num_buckets = num_buckets;
+
+  list->buckets = xmalloc (sizeof (struct pdb_hash_entry*) * num_buckets);
+  memset(list->buckets, 0, sizeof (struct pdb_hash_entry*) * num_buckets);
+
+  list->first = NULL;
+}
+
 static void
 init_rollover_hash_list (struct pdb_rollover_hash_list *list, unsigned int num_buckets)
 {
@@ -64,6 +75,20 @@ init_rollover_hash_list (struct pdb_rollover_hash_list *list, unsigned int num_b
 
   list->buckets = xmalloc (sizeof (struct pdb_hash_entry*) * num_buckets);
   memset(list->buckets, 0, sizeof (struct pdb_hash_entry*) * num_buckets);
+}
+
+void
+free_hash_list (struct pdb_hash_list *list)
+{
+  while (list->first) {
+    struct pdb_hash_entry *ent = list->first;
+
+    list->first = ent->next;
+
+    free(ent);
+  }
+
+  free(list->buckets);
 }
 
 static void
@@ -75,6 +100,78 @@ free_rollover_hash_list (struct pdb_rollover_hash_list *list)
   }
 
   free(list->buckets);
+}
+
+void
+add_hash_entry (struct pdb_hash_list *list, struct pdb_hash_entry *ent)
+{
+  ent->hash %= list->num_buckets;
+
+  // bucket already filled - place entry after existing one
+
+  if (list->buckets[ent->hash]) {
+    struct pdb_hash_entry *ent2 = list->buckets[ent->hash];
+
+    // check for dupes
+    while (ent2 && ent2->hash == ent->hash) {
+      if (ent->length == ent2->length && !memcmp(ent->data, ent2->data, ent->length)) {
+	free(ent);
+	return;
+      }
+
+      ent2 = ent2->next;
+    }
+
+    ent->prev = list->buckets[ent->hash];
+    ent->next = list->buckets[ent->hash]->next;
+    list->buckets[ent->hash]->next = ent;
+
+    if (ent->next)
+      ent->next->prev = ent;
+
+    return;
+  }
+
+  // bucket not filled - find preceding entry
+
+  if (ent->hash > 0) {
+    uint32_t hash = ent->hash - 1;
+
+    while (1) {
+      if (list->buckets[hash]) {
+	ent->prev = list->buckets[hash];
+
+	while (ent->prev->next && ent->prev->next->hash == ent->prev->hash) {
+	  ent->prev = ent->prev->next;
+	}
+
+	ent->next = ent->prev->next;
+	ent->prev->next = ent;
+
+	if (ent->next)
+	  ent->next->prev = ent;
+
+	list->buckets[ent->hash] = ent;
+
+	return;
+      }
+
+      if (hash == 0)
+	break;
+
+      hash--;
+    }
+  }
+
+  // place entry at head of list
+
+  ent->next = list->first;
+
+  if (ent->next)
+    ent->next->prev = ent;
+
+  list->first = ent;
+  list->buckets[ent->hash] = ent;
 }
 
 static void

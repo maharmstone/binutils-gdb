@@ -144,6 +144,22 @@ struct dbi_stream_header {
 
 static_assert(sizeof(struct dbi_stream_header) == 0x40, "dbi_stream_header has incorrect size");
 
+struct pdb_hash_entry {
+  uint32_t hash;
+  struct pdb_hash_entry *prev;
+  struct pdb_hash_entry *next;
+  uint32_t offset;
+  uint32_t index;
+  size_t length;
+  uint8_t data[0];
+};
+
+struct pdb_hash_list {
+  unsigned int num_buckets;
+  struct pdb_hash_entry **buckets;
+  struct pdb_hash_entry *first;
+};
+
 struct pdb_rollover_hash_entry {
   uint32_t hash;
   uint32_t offset;
@@ -165,6 +181,10 @@ struct pdb_named_stream_entry {
 // pdb.c
 void create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid);
 struct pdb_stream *add_stream (struct pdb_context *ctx, const char *name);
+uint32_t calc_hash(const uint8_t* data, size_t len);
+void add_hash_entry (struct pdb_hash_list *list, struct pdb_hash_entry *ent);
+void init_hash_list (struct pdb_hash_list *list, unsigned int num_buckets);
+void free_hash_list (struct pdb_hash_list *list);
 
 // pdb-dbi.c
 void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
