@@ -384,8 +384,106 @@ get_section_characteristics(uint32_t sec_flags)
   return styp_flags;
 }
 
+static uint16_t
+create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_size,
+		     uint32_t *c13_lines_size, uint16_t *num_source_files)
+{
+  struct bfd_section *sect, *pdb_sect = NULL;
+  struct pdb_stream *stream;
+  uint16_t index;
+  bfd_byte *contents = NULL;
+  struct pdb_subsection *subsect;
+  uint32_t left;
+  uint8_t *ptr;
+
+  *symbols_size = 0;
+  *c13_lines_size = 0;
+  *num_source_files = 0;
+
+  sect = in_bfd->sections;
+  while (sect) {
+    if (!strcmp(sect->name, ".debug$S")) {
+      pdb_sect = sect;
+      break;
+    }
+
+    sect = sect->next;
+  }
+
+  if (!pdb_sect || pdb_sect->size < sizeof(uint32_t))
+    return 0xffff;
+
+  if (!bfd_get_full_section_contents (in_bfd, pdb_sect, &contents))
+    return 0xffff;
+
+  if (bfd_getl32(contents) != CV_SIGNATURE_C13) {
+    free(contents);
+    return 0xffff;
+  }
+
+  // FIXME - relocations?
+
+  index = ctx->num_streams;
+  add_stream(ctx, NULL);
+  stream = ctx->last_stream;
+
+  subsect = (struct pdb_subsection*)((uint8_t*)contents + sizeof(uint32_t));
+  left = pdb_sect->size - sizeof(uint32_t);
+  *symbols_size = sizeof(uint32_t);
+
+  while (left > 0) {
+    uint32_t type = bfd_getl32(&subsect->type);
+    uint32_t length = bfd_getl32(&subsect->length);
+
+    if (type == CV_DEBUG_S_SYMBOLS)
+      *symbols_size += length;
+
+    if (left < sizeof(struct pdb_subsection) + length)
+      break;
+
+    left -= sizeof(struct pdb_subsection) + length;
+    subsect = (struct pdb_subsection*)((uint8_t*)subsect + sizeof(struct pdb_subsection) + length);
+  }
+
+  stream->length = *symbols_size;
+  stream->data = xmalloc(stream->length);
+
+  // copy data into stream
+
+  subsect = (struct pdb_subsection*)((uint8_t*)contents + sizeof(uint32_t));
+  left = pdb_sect->size - sizeof(uint32_t);
+
+  bfd_putl32(CV_SIGNATURE_C13, (uint32_t*)stream->data);
+  ptr = (uint8_t*)stream->data + sizeof(uint32_t);
+
+  while (left > 0) {
+    uint32_t type = bfd_getl32(&subsect->type);
+    uint32_t length = bfd_getl32(&subsect->length);
+
+    if (type == CV_DEBUG_S_SYMBOLS) {
+      memcpy(ptr, (uint8_t*)subsect + sizeof(struct pdb_subsection), length);
+      ptr += length;
+    }
+
+    if (left < sizeof(struct pdb_subsection) + length)
+      break;
+
+    left -= sizeof(struct pdb_subsection) + length;
+    subsect = (struct pdb_subsection*)((uint8_t*)subsect + sizeof(struct pdb_subsection) + length);
+  }
+
+  free(contents);
+
+  // FIXME - MD5 hashes of files
+  // FIXME - num_source_files
+
+  // FIXME - line numbers
+
+  return index;
+}
+
 static void
-create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
+create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, uint32_t *length)
 {
   bfd *in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
   uint8_t *ptr;
@@ -420,6 +518,8 @@ create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
     size_t name_len = strlen(in_bfd->filename);
     struct module_info *mod_info = (struct module_info *)ptr;
     struct bfd_section *sect = in_bfd->sections;
+    uint16_t module_stream, source_file_count;
+    uint32_t symbols_size, c13_lines_size;
 
     bfd_putl16(0xffff, &mod_info->sc.section);
     bfd_putl32(0xffffffff, &mod_info->sc.size);
@@ -441,10 +541,13 @@ create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
       sect = sect->next;
     }
 
-    bfd_putl16(0xffff, &mod_info->module_stream); // FIXME
-    bfd_putl32(0, &mod_info->symbols_size); // FIXME
-    bfd_putl32(0, &mod_info->c13_lines_size); // FIXME
-    bfd_putl16(0, &mod_info->source_file_count);// FIXME (get from gcc)
+    module_stream = create_module_stream(ctx, in_bfd, &symbols_size, &c13_lines_size,
+					 &source_file_count);
+
+    bfd_putl16(module_stream, &mod_info->module_stream);
+    bfd_putl32(symbols_size, &mod_info->symbols_size);
+    bfd_putl32(c13_lines_size, &mod_info->c13_lines_size);
+    bfd_putl16(source_file_count, &mod_info->source_file_count);
 
     ptr += sizeof(struct module_info);
 
@@ -625,7 +728,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   create_file_info_substream(ctx->abfd, &file_info, &file_info_size);
 
-  create_module_info_substream(ctx->abfd, &module_info, &module_info_size);
+  create_module_info_substream(ctx, ctx->abfd, &module_info, &module_info_size);
 
   create_sections_contribution_substream(ctx->abfd, &section_contributions,
 					 &section_contributions_size);

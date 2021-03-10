@@ -34,6 +34,10 @@
 
 #define BYTES_TO_PAGES(b) (((b) + PDB_BLOCK_SIZE - 1) / PDB_BLOCK_SIZE)
 
+#define CV_SIGNATURE_C13	4
+
+#define CV_DEBUG_S_SYMBOLS		0xf1
+
 #define S_PUB32				0x110e
 
 struct pdb_superblock {
@@ -262,6 +266,11 @@ struct section_map_entry {
 #define SECTION_MAP_ENTRY_FLAGS_SELECTOR	0x0100
 #define SECTION_MAP_ENTRY_FLAGS_ABSOLUTE	0x0200
 #define SECTION_MAP_ENTRY_FLAGS_GROUP		0x0400
+
+struct pdb_subsection {
+  uint32_t type;
+  uint32_t length;
+};
 
 struct pdb_named_stream_entry {
   uint32_t offset;
