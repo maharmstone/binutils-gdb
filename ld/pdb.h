@@ -43,6 +43,7 @@
 
 #define LF_MODIFIER			0x1001
 #define LF_POINTER			0x1002
+#define LF_PROCEDURE			0x1008
 #define S_BLOCK32			0x1103
 #define S_LDATA32			0x110c
 #define S_GDATA32			0x110d
@@ -320,6 +321,14 @@ struct codeview_property { // CV_prop_t in cvdump
 struct pdb_pointer { // lfPointer in cvdump
   uint16_t type;
   uint32_t attr;
+};
+
+struct pdb_proc { // lfProcedure in cvdump
+  uint16_t return_type;
+  uint8_t calling_convention;
+  uint8_t attributes;
+  uint16_t num_args;
+  uint16_t arg_list;
 };
 
 struct pdb_arglist { // lfArgList in cvdump

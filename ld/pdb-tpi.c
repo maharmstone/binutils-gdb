@@ -217,6 +217,53 @@ find_type_arglist (struct pdb_type **types, struct pdb_type **last_type, uint32_
   return t->index;
 }
 
+static uint16_t
+find_type_proc (struct pdb_type **types, struct pdb_type **last_type, uint16_t return_type,
+		uint8_t calling_convention, uint8_t attributes, uint16_t num_args, uint16_t arg_list)
+{
+  struct pdb_type *t = *types;
+  struct pdb_proc *proc;
+
+  while (t) {
+    if (t->cv_type == LF_PROCEDURE) {
+      proc = (struct pdb_proc*)t->data;
+
+      if (proc->return_type == return_type && proc->calling_convention == calling_convention &&
+	  proc->attributes == attributes && proc->num_args == num_args && proc->arg_list == arg_list) {
+	return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + sizeof(struct pdb_proc));
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_PROCEDURE;
+
+  proc = (struct pdb_proc*)t->data;
+
+  proc->return_type = return_type;
+  proc->calling_convention = calling_convention;
+  proc->attributes = attributes;
+  proc->num_args = num_args;
+  proc->arg_list = arg_list;
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
@@ -351,6 +398,31 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 
 	if (args)
 	  free(args);
+
+	break;
+      }
+
+      case LF_PROCEDURE: {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t return_type, num_args, arg_list, proc_type;
+	uint8_t calling_convention, attributes;
+
+	return_type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	calling_convention = *ptr2; ptr2++;
+	attributes = *ptr2; ptr2++;
+	num_args = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	arg_list = bfd_getl16(ptr2);
+
+	if (return_type >= FIRST_TYPE_INDEX && return_type < FIRST_TYPE_INDEX + num_entries)
+	  return_type = type_list[return_type - FIRST_TYPE_INDEX];
+
+	if (arg_list >= FIRST_TYPE_INDEX && arg_list < FIRST_TYPE_INDEX + num_entries)
+	  arg_list = type_list[arg_list - FIRST_TYPE_INDEX];
+
+	proc_type = find_type_proc(types, last_type, return_type, calling_convention,
+				   attributes, num_args, arg_list);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = proc_type;
 
 	break;
       }
@@ -522,6 +594,10 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	break;
       }
 
+      case LF_PROCEDURE:
+	len += 16;
+      break;
+
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
     }
@@ -585,8 +661,23 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	bfd_putl32 (arglist->count, ptr); ptr += sizeof(uint32_t);
 
 	for (unsigned int i = 0; i < arglist->count; i++) {
-	  bfd_putl32 (arglist->args[i], ptr); ptr += sizeof(uint32_t);
+	  bfd_putl32 (arglist->args[i], ptr);
+	  ptr += sizeof(uint32_t);
 	}
+
+	break;
+      }
+
+      case LF_PROCEDURE: {
+	struct pdb_proc *proc = (struct pdb_proc *)t->data;
+
+	bfd_putl16 (14, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_PROCEDURE, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (proc->return_type, ptr); ptr += sizeof(uint32_t);
+	*ptr = proc->calling_convention; ptr++;
+	*ptr = proc->attributes; ptr++;
+	bfd_putl16 (proc->num_args, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (proc->arg_list, ptr); ptr += sizeof(uint32_t);
 
 	break;
       }
