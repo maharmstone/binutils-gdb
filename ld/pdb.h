@@ -234,6 +234,11 @@ struct file_info_substream {
   uint16_t num_source_files;
 };
 
+enum section_contributions_version {
+  section_contributions_version_ver60 = 0xeffe0000 + 19970605,
+  section_contributions_version_v2 = 0xeffe0000 + 20140516
+};
+
 struct pdb_named_stream_entry {
   uint32_t offset;
   uint32_t stream;

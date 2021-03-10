@@ -338,6 +338,52 @@ create_symbol_stream (struct pdb_context *ctx, struct pdb_hash_list *list)
   return stream_index;
 }
 
+// FIXME - use sec_to_styp_flags in coffcode.h instead? Or just copy from output?
+static uint32_t
+get_section_characteristics(uint32_t sec_flags)
+{
+  uint32_t styp_flags = 0;
+
+  if ((sec_flags & SEC_CODE) != 0)
+    styp_flags |= IMAGE_SCN_CNT_CODE;
+  if ((sec_flags & (SEC_DATA | SEC_DEBUGGING)) != 0)
+    styp_flags |= IMAGE_SCN_CNT_INITIALIZED_DATA;
+  if ((sec_flags & SEC_ALLOC) != 0 && (sec_flags & SEC_LOAD) == 0)
+    styp_flags |= IMAGE_SCN_CNT_UNINITIALIZED_DATA;  /* ==STYP_BSS */
+  /* skip ROM */
+  /* skip constRUCTOR */
+  /* skip CONTENTS */
+  if ((sec_flags & SEC_IS_COMMON) != 0)
+    styp_flags |= IMAGE_SCN_LNK_COMDAT;
+  if ((sec_flags & SEC_DEBUGGING) != 0)
+    styp_flags |= IMAGE_SCN_MEM_DISCARDABLE;
+  if ((sec_flags & SEC_EXCLUDE) != 0)
+    styp_flags |= IMAGE_SCN_LNK_REMOVE;
+  if ((sec_flags & SEC_NEVER_LOAD) != 0)
+    styp_flags |= IMAGE_SCN_LNK_REMOVE;
+  /* skip IN_MEMORY */
+  /* skip SORT */
+  if (sec_flags & SEC_LINK_ONCE)
+    styp_flags |= IMAGE_SCN_LNK_COMDAT;
+  if ((sec_flags
+       & (SEC_LINK_DUPLICATES_DISCARD | SEC_LINK_DUPLICATES_SAME_CONTENTS
+	  | SEC_LINK_DUPLICATES_SAME_SIZE)) != 0)
+    styp_flags |= IMAGE_SCN_LNK_COMDAT;
+
+  /* skip LINKER_CREATED */
+
+  if ((sec_flags & SEC_COFF_NOREAD) == 0)
+    styp_flags |= IMAGE_SCN_MEM_READ;     /* Invert NOREAD for read.  */
+  if ((sec_flags & SEC_READONLY) == 0)
+    styp_flags |= IMAGE_SCN_MEM_WRITE;    /* Invert READONLY for write.  */
+  if (sec_flags & SEC_CODE)
+    styp_flags |= IMAGE_SCN_MEM_EXECUTE;  /* CODE->EXECUTE.  */
+  if (sec_flags & SEC_COFF_SHARED)
+    styp_flags |= IMAGE_SCN_MEM_SHARED;   /* Shared remains meaningful.  */
+
+  return styp_flags;
+}
+
 static void
 create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
 {
@@ -367,7 +413,7 @@ create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
   memset(*data, 0, *length);
 
   ptr = *data;
-  index = 1;
+  index = 0;
   in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
 
   while (in_bfd) {
@@ -410,12 +456,94 @@ create_module_info_substream (bfd *abfd, void **data, uint32_t *length)
   }
 }
 
+static int
+sc_compare(const void *s1, const void* s2)
+{
+  const struct section_contribution *sc1 = s1;
+  const struct section_contribution *sc2 = s2;
+
+  if (bfd_getl16(&sc1->section) < bfd_getl16(&sc2->section))
+    return -1;
+  if (bfd_getl16(&sc1->section) > bfd_getl16(&sc2->section))
+    return 1;
+
+  if (bfd_getl32(&sc1->offset) < bfd_getl32(&sc2->offset))
+    return -1;
+  if (bfd_getl32(&sc1->offset) > bfd_getl32(&sc2->offset))
+    return 1;
+
+  return 0;
+}
+
+static void
+create_sections_contribution_substream(bfd *abfd, void **data, uint32_t *length)
+{
+  struct section_contribution *sc;
+  unsigned int num_sections = 0, module_index = 0;
+  bfd *in_bfd;
+
+  in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
+
+  while (in_bfd) {
+    struct bfd_section *sect = in_bfd->sections;
+
+    while (sect) {
+      if (sect->size > 0 && find_section_number(abfd, sect->output_section) != 0)
+	num_sections++;
+
+      sect = sect->next;
+    }
+
+    in_bfd = in_bfd->link.next;
+  }
+
+  *length = sizeof(uint32_t) + (num_sections * sizeof(struct section_contribution));
+  *data = xmalloc(*length);
+  memset(*data, 0, *length);
+
+  bfd_putl32(section_contributions_version_ver60, (uint32_t*)*data);
+
+  sc = (struct section_contribution *)((uint8_t*)*data + sizeof(uint32_t));
+
+  in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
+  while (in_bfd) {
+    struct bfd_section *sect = in_bfd->sections;
+
+    while (sect) {
+      if (sect->size > 0) {
+	uint16_t sect_num = find_section_number(abfd, sect->output_section);
+
+	if (sect_num != 0) {
+	  bfd_putl16(find_section_number(abfd, sect->output_section), &sc->section);
+
+	  bfd_putl32(sect->output_offset, &sc->offset);
+
+	  bfd_putl32(sect->size, &sc->size);
+	  bfd_putl32(get_section_characteristics(sect->flags), &sc->characteristics);
+	  bfd_putl16(module_index, &sc->module_index);
+
+	  sc++;
+	}
+      }
+
+      sect = sect->next;
+    }
+
+    in_bfd = in_bfd->link.next;
+    module_index++;
+  }
+
+  qsort((uint8_t*)*data + sizeof(uint32_t), num_sections, sizeof(struct section_contribution), sc_compare);
+}
+
 void
 create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 {
   struct dbi_stream_header *h;
   void *optional_dbg_header = NULL, *file_info = NULL, *module_info = NULL;
+  void *section_contributions = NULL;
   uint32_t optional_dbg_header_size = 0, file_info_size = 0, module_info_size = 0;
+  uint32_t section_contributions_size = 0;
   uint16_t sym_record_stream, public_stream;
   uint8_t *ptr;
   struct pdb_hash_list publics;
@@ -430,12 +558,15 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
 
   create_module_info_substream(ctx->abfd, &module_info, &module_info_size);
 
+  create_sections_contribution_substream(ctx->abfd, &section_contributions,
+					 &section_contributions_size);
+
   sym_record_stream = create_symbol_record_stream(ctx, &publics);
 
   public_stream = create_symbol_stream(ctx, &publics);
 
   stream->length = sizeof(struct dbi_stream_header) + optional_dbg_header_size +
-		   file_info_size + module_info_size;
+		   file_info_size + module_info_size + section_contributions_size;
   stream->data = xmalloc(stream->length);
 
   h = (struct dbi_stream_header*)stream->data;
@@ -450,7 +581,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   bfd_putl16(sym_record_stream, &h->sym_record_stream);
   bfd_putl16(0, &h->pdb_dll_rbld);
   bfd_putl32(module_info_size, &h->mod_info_size);
-  bfd_putl32(0, &h->section_contribution_size); // FIXME
+  bfd_putl32(section_contributions_size, &h->section_contribution_size);
   bfd_putl32(0, &h->section_map_size); // FIXME
   bfd_putl32(file_info_size, &h->source_info_size);
   bfd_putl32(0, &h->type_server_map_size);
@@ -479,7 +610,12 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
     free(module_info);
   }
 
-  // FIXME - section contribution
+  if (section_contributions) {
+    memcpy(ptr, section_contributions, section_contributions_size);
+    ptr += section_contributions_size;
+    free(section_contributions);
+  }
+
   // FIXME - section map
 
   if (file_info) {
