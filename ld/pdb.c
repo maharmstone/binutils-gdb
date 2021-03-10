@@ -719,7 +719,12 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   create_tpi_stream(&ctx, tpi_stream, ipi_stream, types, ipi_types);
 
-  create_dbi_stream(&ctx, dbi_stream);
+  create_dbi_stream(&ctx, dbi_stream, type_info);
+
+  for (unsigned int i = 0; i < num_modules; i++) {
+    if (type_info[i].type_list)
+      free(type_info[i].type_list);
+  }
 
   free(type_info);
 

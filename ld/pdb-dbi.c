@@ -535,7 +535,8 @@ add_data32 (struct pdb_hash_list *list, uint32_t type, uint32_t off,
 
 static void
 handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num,
-			       struct pdb_hash_list *globals, int32_t offset)
+			       struct pdb_hash_list *globals, int32_t offset,
+			       struct pdb_mod_type_info *mod_type_info)
 {
   uint32_t addr = sizeof(uint32_t);
   uint16_t cv_type, cv_length;
@@ -585,6 +586,11 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
 	seg = bfd_getl32(data + 12);
 
 	type = bfd_getl32(data + 4);
+
+	if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + mod_type_info->num_types) {
+	  type = mod_type_info->type_list[type - FIRST_TYPE_INDEX];
+	  bfd_putl32(type, data + 4);
+	}
 
 	name = (const char*)(data + 14);
 
@@ -698,7 +704,8 @@ static uint16_t
 create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_size,
 		     uint32_t *c13_lines_size, uint16_t *num_source_files,
 		     uint16_t module_num, struct pdb_hash_list *globals,
-		     struct pdb_source_file **source_files)
+		     struct pdb_source_file **source_files,
+		     struct pdb_mod_type_info *mod_type_info)
 {
   struct bfd_section *sect, *pdb_sect = NULL;
   struct pdb_stream *stream;
@@ -839,7 +846,8 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
       memcpy(symptr, (uint8_t*)subsect + sizeof(struct pdb_subsection), length);
 
       handle_module_codeview_entries(symptr, length, module_num, globals,
-				     (symptr - (uint8_t*)stream->data) - ((uint8_t*)subsect - (uint8_t*)contents) - sizeof(struct pdb_subsection));
+				     (symptr - (uint8_t*)stream->data) - ((uint8_t*)subsect - (uint8_t*)contents) - sizeof(struct pdb_subsection),
+				     mod_type_info);
 
       symptr += length;
     } else if (type == CV_DEBUG_S_STRINGTABLE) {
@@ -907,11 +915,13 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
 
 static void
 create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, uint32_t *length,
-			      struct pdb_hash_list *globals, struct pdb_source_file ***source_file_array)
+			      struct pdb_hash_list *globals, struct pdb_mod_type_info *type_info,
+			      struct pdb_source_file ***source_file_array)
 {
   bfd *in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
   uint8_t *ptr;
   uint16_t index;
+  struct pdb_mod_type_info *mod_type_info;
   unsigned int num_modules = 0;
 
   *length = 0;
@@ -942,6 +952,7 @@ create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, u
 
   ptr = *data;
   index = 0;
+  mod_type_info = type_info;
   in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
 
   while (in_bfd) {
@@ -973,7 +984,8 @@ create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, u
 
     module_stream = create_module_stream(ctx, in_bfd, &symbols_size, &c13_lines_size,
 					 &source_file_count, index + 1, globals,
-					 &(*source_file_array)[index]);
+					 &(*source_file_array)[index],
+					 mod_type_info);
 
     bfd_putl16(module_stream, &mod_info->module_stream);
     bfd_putl32(symbols_size, &mod_info->symbols_size);
@@ -999,6 +1011,7 @@ create_module_info_substream (struct pdb_context *ctx, bfd *abfd, void **data, u
       ptr += 4 - ((ptr - (uint8_t*)*data) % 4);
 
     in_bfd = in_bfd->link.next;
+    mod_type_info++;
     index++;
   }
 }
@@ -1140,7 +1153,8 @@ create_section_map_substream (bfd *abfd, void **data, uint32_t *length)
 }
 
 void
-create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
+create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
+		   struct pdb_mod_type_info *type_info)
 {
   struct dbi_stream_header *h;
   void *optional_dbg_header = NULL, *file_info = NULL, *module_info = NULL;
@@ -1161,7 +1175,7 @@ create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream)
   create_optional_dbg_header(ctx, &optional_dbg_header, &optional_dbg_header_size);
 
   create_module_info_substream(ctx, ctx->abfd, &module_info, &module_info_size,
-			       &globals, &source_file_array);
+			       &globals, type_info, &source_file_array);
 
   create_file_info_substream(ctx->abfd, &file_info, &file_info_size,
 			     source_file_array, &num_modules);

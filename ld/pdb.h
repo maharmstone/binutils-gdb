@@ -423,6 +423,8 @@ struct pdb_udt_mod_src_line {
 struct pdb_mod_type_info {
   uint16_t offset;
   unsigned int num_entries;
+  uint16_t *type_list;
+  unsigned int num_types;
 };
 
 struct pdb_string {
@@ -503,7 +505,8 @@ unsigned int add_pdb_string(const char *str);
 const char *find_pdb_string(unsigned int offset);
 
 // pdb-dbi.c
-void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
+void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream,
+			struct pdb_mod_type_info *type_info);
 
 // pdb-tpi.c
 void load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info,
