@@ -37,6 +37,7 @@
 #define CV_SIGNATURE_C13	4
 
 #define CV_DEBUG_S_SYMBOLS		0xf1
+#define CV_DEBUG_S_STRINGTABLE		0xf3
 
 #define S_LDATA32			0x110c
 #define S_GDATA32			0x110d
@@ -347,6 +348,7 @@ uint32_t calc_hash(const uint8_t* data, size_t len);
 void add_hash_entry (struct pdb_hash_list *list, struct pdb_hash_entry *ent);
 void init_hash_list (struct pdb_hash_list *list, unsigned int num_buckets);
 void free_hash_list (struct pdb_hash_list *list);
+unsigned int add_pdb_string(const char *str);
 
 // pdb-dbi.c
 void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);

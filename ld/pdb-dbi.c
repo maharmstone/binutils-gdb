@@ -569,7 +569,7 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   bfd_byte *contents = NULL;
   struct pdb_subsection *subsect;
   uint32_t left;
-  uint8_t *ptr;
+  uint8_t *symptr;
 
   *symbols_size = 0;
   *c13_lines_size = 0;
@@ -667,19 +667,35 @@ create_module_stream(struct pdb_context *ctx, bfd *in_bfd, uint32_t *symbols_siz
   left = pdb_sect->size - sizeof(uint32_t);
 
   bfd_putl32(CV_SIGNATURE_C13, (uint32_t*)stream->data);
-  ptr = (uint8_t*)stream->data + sizeof(uint32_t);
+  symptr = (uint8_t*)stream->data + sizeof(uint32_t);
 
   while (left > 0) {
     uint32_t type = bfd_getl32(&subsect->type);
     uint32_t length = bfd_getl32(&subsect->length);
 
     if (type == CV_DEBUG_S_SYMBOLS) {
-      memcpy(ptr, (uint8_t*)subsect + sizeof(struct pdb_subsection), length);
+      memcpy(symptr, (uint8_t*)subsect + sizeof(struct pdb_subsection), length);
 
-      handle_module_codeview_entries(ptr, length, module_num, globals,
-				     (ptr - (uint8_t*)stream->data) - ((uint8_t*)subsect - (uint8_t*)contents) - sizeof(struct pdb_subsection));
+      handle_module_codeview_entries(symptr, length, module_num, globals,
+				     (symptr - (uint8_t*)stream->data) - ((uint8_t*)subsect - (uint8_t*)contents) - sizeof(struct pdb_subsection));
 
-      ptr += length;
+      symptr += length;
+    } else if (type == CV_DEBUG_S_STRINGTABLE) {
+      char *ptr = (char*)subsect + sizeof(struct pdb_subsection);
+      uint32_t length2 = length;
+      uint32_t string_len;
+
+      while (length2 > 0) {
+	string_len = strlen(ptr);
+
+	add_pdb_string(ptr);
+
+	if (length2 < string_len + 1)
+	  break;
+
+	ptr += string_len + 1;
+	length2 -= string_len + 1;
+      }
     }
 
     if (left < sizeof(struct pdb_subsection) + length)

@@ -521,7 +521,7 @@ create_pdb_info_stream (struct pdb_context *ctx, struct pdb_stream *stream, cons
   free_rollover_hash_list(&named_stream_hash_list);
 }
 
-static unsigned int
+unsigned int
 add_pdb_string (const char *str)
 {
   size_t len = strlen(str);
