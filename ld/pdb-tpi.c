@@ -176,6 +176,47 @@ find_type_pointer (struct pdb_type **types, struct pdb_type **last_type, uint16_
   return t->index;
 }
 
+static uint16_t
+find_type_arglist (struct pdb_type **types, struct pdb_type **last_type, uint32_t count, uint32_t *args)
+{
+  struct pdb_type *t = *types;
+  struct pdb_arglist *arglist;
+
+  while (t) {
+    if (t->cv_type == LF_ARGLIST) {
+      arglist = (struct pdb_arglist*)t->data;
+
+      if (arglist->count == count && !memcmp(arglist->args, args, count * sizeof(uint32_t)))
+	return t->index;
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + offsetof(struct pdb_arglist, args) + (count * sizeof(uint32_t)));
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_ARGLIST;
+
+  arglist = (struct pdb_arglist*)t->data;
+
+  arglist->count = count;
+  memcpy(arglist->args, args, count * sizeof(uint32_t));
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
@@ -279,6 +320,37 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	ptr_type = find_type_pointer(types, last_type, type, attr);
 
 	type_list[mod_type_index - FIRST_TYPE_INDEX] = ptr_type;
+
+	break;
+      }
+
+      case LF_ARGLIST: {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint32_t count, *args;
+	uint16_t arglist_type;
+
+	count = bfd_getl32(ptr2); ptr2 += sizeof(uint32_t);
+
+	if (count > 0)
+	  args = xmalloc(count * sizeof(uint32_t));
+	else
+	  args = NULL;
+
+	for (unsigned int i = 0; i < count; i++) {
+	  args[i] = bfd_getl32(ptr2);
+
+	  if (args[i] >= FIRST_TYPE_INDEX && args[i] < FIRST_TYPE_INDEX + num_entries)
+	    args[i] = type_list[args[i] - FIRST_TYPE_INDEX];
+
+	  ptr2 += sizeof(uint32_t);
+	}
+
+	arglist_type = find_type_arglist(types, last_type, count, args);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = arglist_type;
+
+	if (args)
+	  free(args);
 
 	break;
       }
@@ -444,6 +516,12 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	len += 12;
       break;
 
+      case LF_ARGLIST: {
+	struct pdb_arglist *arglist = (struct pdb_arglist *)t->data;
+	len += 8 + (arglist->count * sizeof(uint32_t));
+	break;
+      }
+
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
     }
@@ -495,6 +573,20 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	bfd_putl16 (LF_MODIFIER, ptr); ptr += sizeof(uint16_t);
 	bfd_putl32 (mod->type, ptr); ptr += sizeof(uint32_t);
 	bfd_putl32 (mod->modifier, ptr); ptr += sizeof(uint32_t);
+
+	break;
+      }
+
+      case LF_ARGLIST: {
+	struct pdb_arglist *arglist = (struct pdb_arglist *)t->data;
+
+	bfd_putl16 (6 + (arglist->count * sizeof(uint32_t)), ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_ARGLIST, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (arglist->count, ptr); ptr += sizeof(uint32_t);
+
+	for (unsigned int i = 0; i < arglist->count; i++) {
+	  bfd_putl32 (arglist->args[i], ptr); ptr += sizeof(uint32_t);
+	}
 
 	break;
       }

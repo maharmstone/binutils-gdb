@@ -55,6 +55,7 @@
 #define S_GPROC32_ID			0x1147
 #define S_LPROC32_DPC			0x1155
 #define S_LPROC32_DPC_ID		0x1156
+#define LF_ARGLIST			0x1201
 #define LF_CLASS			0x1504
 #define LF_STRUCTURE			0x1505
 #define LF_UNION			0x1506
@@ -319,6 +320,11 @@ struct codeview_property { // CV_prop_t in cvdump
 struct pdb_pointer { // lfPointer in cvdump
   uint16_t type;
   uint32_t attr;
+};
+
+struct pdb_arglist { // lfArgList in cvdump
+  uint32_t count;
+  uint32_t args[1];
 };
 
 struct pdb_mod_type_info {
