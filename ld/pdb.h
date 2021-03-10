@@ -45,13 +45,17 @@
 #define LF_POINTER			0x1002
 #define LF_PROCEDURE			0x1008
 #define S_BLOCK32			0x1103
+#define S_REGISTER			0x1106
+#define S_BPREL32			0x110b
 #define S_LDATA32			0x110c
 #define S_GDATA32			0x110d
 #define S_PUB32				0x110e
 #define S_LPROC32			0x110f
 #define S_GPROC32			0x1110
+#define S_REGREL32			0x1111
 #define S_PROCREF			0x1125
 #define S_LPROCREF			0x1127
+#define S_LOCAL				0x113e
 #define S_LPROC32_ID			0x1146
 #define S_GPROC32_ID			0x1147
 #define S_LPROC32_DPC			0x1155
