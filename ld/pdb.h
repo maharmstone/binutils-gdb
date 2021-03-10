@@ -67,6 +67,7 @@
 #define LF_UNION			0x1506
 #define LF_ENUM				0x1507
 #define LF_MEMBER			0x150d
+#define LF_STRING_ID			0x1605
 #define LF_CHAR				0x8000
 #define LF_SHORT			0x8001
 #define LF_USHORT			0x8002
@@ -431,6 +432,11 @@ struct pdb_names_stream_header {
   uint32_t buf_len;
 };
 
+struct pdb_string_id { // lfStringId in cvdump
+  uint16_t substring;
+  char string[1];
+};
+
 struct pdb_subsection {
   uint32_t type;
   uint32_t length;
@@ -492,8 +498,9 @@ void create_dbi_stream (struct pdb_context *ctx, struct pdb_stream *stream);
 
 // pdb-tpi.c
 void load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct pdb_type **types,
-		 struct pdb_type **last_type);
+		 struct pdb_type **last_type, struct pdb_type **ipi_types);
 void create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
-			struct pdb_stream *ipi_stream, struct pdb_type *types);
+			struct pdb_stream *ipi_stream, struct pdb_type *types,
+			struct pdb_type *ipi_types);
 
 #endif /* _PDB_H */

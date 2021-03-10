@@ -32,6 +32,7 @@
 #define NUM_TPI_HASH_BUCKETS 0x3ffff
 
 uint16_t type_index = FIRST_TYPE_INDEX;
+uint16_t ipi_type_index = FIRST_TYPE_INDEX;
 
 static const uint32_t crc_table[] = {
   0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f,
@@ -625,8 +626,51 @@ find_type_array (struct pdb_type **types, struct pdb_type **last_type,
   return t->index;
 }
 
+static uint16_t
+find_type_string_id (struct pdb_type **ipi_types, uint16_t substring,
+		     const char *string)
+{
+  struct pdb_type *t = *ipi_types;
+  struct pdb_string_id *str;
+  size_t string_len;
+
+  while (t) {
+    if (t->cv_type == LF_STRING_ID) {
+      str = (struct pdb_string_id*)t->data;
+
+      if (str->substring == substring && !strcmp(str->string, string))
+	return t->index;
+    }
+
+    t = t->next;
+  }
+
+  string_len = strlen(string);
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) +
+				offsetof(struct pdb_string, string) +
+			        string_len + 1);
+
+  t->next = NULL;
+  t->index = ipi_type_index;
+  t->cv_type = LF_STRING_ID;
+
+  str = (struct pdb_string_id*)t->data;
+
+  str->substring = substring;
+  memcpy(str->string, string, string_len + 1);
+
+  if (!*ipi_types)
+    *ipi_types = t;
+
+  ipi_type_index++;
+
+  return t->index;
+}
+
 static void
-load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
+load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type,
+		   struct pdb_type **ipi_types)
 {
   struct bfd_section *sect, *pdb_sect = NULL;
   bfd_byte *contents = NULL;
@@ -1192,6 +1236,22 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_STRING_ID:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t substring;
+
+	substring = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+
+	if (substring >= FIRST_TYPE_INDEX && substring < FIRST_TYPE_INDEX + num_entries)
+	  substring = type_list[substring - FIRST_TYPE_INDEX];
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] =
+	  find_type_string_id(ipi_types, substring, (const char *)ptr2);
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1465,6 +1525,18 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
       case LF_ARRAY:
 	len += 16;
       break;
+
+      case LF_STRING_ID:
+      {
+	struct pdb_string_id *str = (struct pdb_string_id *)t->data;
+
+	len += 9 + strlen(str->string);
+
+	if (len % 4 != 0)
+	  len += 4 - (len % 4);
+
+	break;
+      }
 
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
@@ -1905,6 +1977,44 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	break;
       }
 
+      case LF_STRING_ID: {
+	struct pdb_string_id *str = (struct pdb_string_id *)t->data;
+	size_t string_len = strlen (str->string);
+	uint16_t item_len;
+	uint8_t align;
+
+	item_len = 9 + string_len;
+
+	align = 4 - (item_len % 4);
+
+	if (align != 4)
+	  item_len += align;
+
+	bfd_putl16 (item_len - 2, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_STRING_ID, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (str->substring, ptr); ptr += sizeof(uint32_t);
+
+	memcpy (ptr, str->string, string_len + 1);
+	ptr += string_len + 1;
+
+	if (align != 4) {
+	  if (align == 3) {
+	    *ptr = 0xf3;
+	    ptr++;
+	  }
+
+	  if (align >= 2) {
+	    *ptr = 0xf2;
+	    ptr++;
+	  }
+
+	  *ptr = 0xf1;
+	  ptr++;
+	}
+
+	break;
+      }
+
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
     }
@@ -1925,13 +2035,14 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 void
 load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct pdb_type **types,
-	    struct pdb_type **last_type)
+	    struct pdb_type **last_type, struct pdb_type **ipi_types)
 {
   bfd *in_bfd;
   struct pdb_mod_type_info *mod_type_info;
 
   *types = NULL;
   *last_type = NULL;
+  *ipi_types = NULL;
 
   in_bfd = ctx->abfd->tdata.coff_obj_data->link_info->input_bfds;
   mod_type_info = type_info;
@@ -1939,7 +2050,7 @@ load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct
   while (in_bfd) {
     mod_type_info->offset = type_index - FIRST_TYPE_INDEX;
 
-    load_module_types(in_bfd, types, last_type);
+    load_module_types(in_bfd, types, last_type, ipi_types);
 
     mod_type_info->num_entries = type_index - mod_type_info->offset - FIRST_TYPE_INDEX;
 
@@ -1950,9 +2061,9 @@ load_types (struct pdb_context *ctx, struct pdb_mod_type_info *type_info, struct
 
 void
 create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
-		   struct pdb_stream *ipi_stream, struct pdb_type *types)
+		   struct pdb_stream *ipi_stream, struct pdb_type *types,
+		   struct pdb_type *ipi_types)
 {
-  struct pdb_type *ipi_types = NULL;
   create_type_stream(ctx, tpi_stream, types);
 
   while (types) {
@@ -1975,5 +2086,13 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
     types = n;
   }
 
-  create_type_stream(ctx, ipi_stream, NULL);
+  create_type_stream(ctx, ipi_stream, ipi_types);
+
+  while (ipi_types) {
+    struct pdb_type *n = ipi_types->next;
+
+    free(ipi_types);
+
+    ipi_types = n;
+  }
 }

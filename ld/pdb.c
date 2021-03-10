@@ -667,7 +667,7 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
   unsigned int num_modules = 0;
   bfd *in_bfd;
   struct pdb_mod_type_info *type_info;
-  struct pdb_type *types, *last_type;
+  struct pdb_type *types, *last_type, *ipi_types;
   struct pdb_superblock super;
 
   in_bfd = abfd->tdata.coff_obj_data->link_info->input_bfds;
@@ -715,9 +715,9 @@ create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid)
 
   type_info = xmalloc(num_modules * sizeof(struct pdb_mod_type_info));
 
-  load_types(&ctx, type_info, &types, &last_type);
+  load_types(&ctx, type_info, &types, &last_type, &ipi_types);
 
-  create_tpi_stream(&ctx, tpi_stream, ipi_stream, types);
+  create_tpi_stream(&ctx, tpi_stream, ipi_stream, types, ipi_types);
 
   create_dbi_stream(&ctx, dbi_stream);
 
