@@ -28,9 +28,13 @@
 #define PDB_BLOCK_SIZE 0x1000
 #define FIRST_TYPE_INDEX 0x1000
 
+#define GSI_HASH_VERSION_V70 (0xeffe0000 + 19990810)
+
 #define PDB_OPTIONAL_SECTION_STREAM 5
 
 #define BYTES_TO_PAGES(b) (((b) + PDB_BLOCK_SIZE - 1) / PDB_BLOCK_SIZE)
+
+#define S_PUB32				0x110e
 
 struct pdb_superblock {
   char magic[sizeof(PDB_MAGIC)];
@@ -171,6 +175,28 @@ struct pdb_rollover_hash_entry {
 struct pdb_rollover_hash_list {
   unsigned int num_buckets;
   struct pdb_rollover_hash_entry **buckets;
+};
+
+struct gsi_header { // PSGSIHDR in cvdump
+  uint32_t sym_hash_length;
+  uint32_t addr_map_length;
+  uint32_t num_thunks;
+  uint32_t size_of_thunk;
+  uint32_t section_thunk_table;
+  uint32_t offset_thunk_table;
+  uint32_t num_sections;
+};
+
+struct gsi_hash_header { // GSIHashHdr in cvdump
+  uint32_t signature;
+  uint32_t version;
+  uint32_t data_length;
+  uint32_t buckets_length;
+};
+
+struct hash_record_file { // HRFile in cvdump
+  uint32_t offset;
+  uint32_t ref;
 };
 
 struct pdb_named_stream_entry {
