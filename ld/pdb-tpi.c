@@ -526,6 +526,59 @@ find_type_enum (struct pdb_type **types, struct pdb_type **last_type,
   return t->index;
 }
 
+static uint16_t
+find_type_union (struct pdb_type **types, struct pdb_type **last_type,
+		uint16_t count, uint16_t prop, uint16_t field, uint16_t size,
+		const char *name)
+{
+  struct pdb_type *t = *types;
+  struct pdb_union *un;
+  size_t name_len;
+
+  while (t) {
+    if (t->cv_type == LF_UNION) {
+      un = (struct pdb_union*)t->data;
+
+      if (un->count == count && un->property.value == prop &&
+	  un->field == field && un->size == size &&
+	  !strcmp(un->name, name)) {
+	return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  name_len = strlen (name);
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) +
+				offsetof(struct pdb_union, name) + name_len + 1);
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_UNION;
+
+  un = (struct pdb_union*)t->data;
+
+  un->count = count;
+  un->property.value = prop;
+  un->field = field;
+  un->size = size;
+  memcpy (un->name, name, name_len + 1);
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
@@ -1051,6 +1104,27 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_UNION:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t count, prop, field, size, union_type;
+
+	count = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	prop = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	field = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	size = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+
+	if (field >= FIRST_TYPE_INDEX && field < FIRST_TYPE_INDEX + num_entries)
+	  field = type_list[field - FIRST_TYPE_INDEX];
+
+	union_type = find_type_union(types, last_type, count, prop, field,
+				     size, (char*)ptr2);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = union_type;
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1302,6 +1376,18 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	struct pdb_enum *en = (struct pdb_enum *)t->data;
 
 	len += 17 + strlen(en->name);
+
+	if (len % 4 != 0)
+	  len += 4 - (len % 4);
+
+	break;
+      }
+
+      case LF_UNION:
+      {
+	struct pdb_union *un = (struct pdb_union *)t->data;
+
+	len += 15 + strlen(un->name);
 
 	if (len % 4 != 0)
 	  len += 4 - (len % 4);
@@ -1672,6 +1758,47 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	bfd_putl32 (en->field, ptr); ptr += sizeof(uint32_t);
 
 	memcpy (ptr, en->name, name_len + 1);
+	ptr += name_len + 1;
+
+	if (align != 4) {
+	  if (align == 3) {
+	    *ptr = 0xf3;
+	    ptr++;
+	  }
+
+	  if (align >= 2) {
+	    *ptr = 0xf2;
+	    ptr++;
+	  }
+
+	  *ptr = 0xf1;
+	  ptr++;
+	}
+
+	break;
+      }
+
+      case LF_UNION: {
+	struct pdb_union *un = (struct pdb_union *)t->data;
+	size_t name_len = strlen (un->name);
+	uint16_t item_len;
+	uint8_t align;
+
+	item_len = 15 + name_len;
+
+	align = 4 - (item_len % 4);
+
+	if (align != 4)
+	  item_len += align;
+
+	bfd_putl16 (item_len - 2, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_UNION, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (un->count, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (un->property.value, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (un->field, ptr); ptr += sizeof(uint32_t);
+	bfd_putl32 (un->size, ptr); ptr += sizeof(uint16_t);
+
+	memcpy (ptr, un->name, name_len + 1);
 	ptr += name_len + 1;
 
 	if (align != 4) {

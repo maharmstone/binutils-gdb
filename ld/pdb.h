@@ -340,6 +340,14 @@ struct pdb_struct { // lfClass in cvdump
   char name[1];
 };
 
+struct pdb_union { // lfUnion in cvdump
+  uint16_t count;
+  struct codeview_property property;
+  uint16_t field;
+  uint16_t size;
+  char name[1];
+};
+
 struct pdb_enum { // lfEnum in cvdump
   uint16_t count;
   struct codeview_property property;
