@@ -32,6 +32,49 @@
 #include <time.h>
 #include "libiberty.h"
 
+static void
+init_rollover_hash_list (struct pdb_rollover_hash_list *list, unsigned int num_buckets)
+{
+  list->num_buckets = num_buckets;
+
+  list->buckets = xmalloc (sizeof (struct pdb_hash_entry*) * num_buckets);
+  memset(list->buckets, 0, sizeof (struct pdb_hash_entry*) * num_buckets);
+}
+
+static void
+free_rollover_hash_list (struct pdb_rollover_hash_list *list)
+{
+  for (unsigned int i = 0; i < list->num_buckets; i++) {
+    if (list->buckets[i])
+      free (list->buckets[i]);
+  }
+
+  free(list->buckets);
+}
+
+static void
+add_rollover_hash_entry (struct pdb_rollover_hash_list *list, struct pdb_rollover_hash_entry *ent)
+{
+  ent->hash %= list->num_buckets;
+
+  if (list->buckets[ent->hash]) {
+    uint32_t hash = ent->hash;
+
+    while (list->buckets[hash]) {
+      // check for dupe
+      if (ent->length == list->buckets[hash]->length && !memcmp(ent->data, list->buckets[hash]->data, ent->length)) {
+	free(ent);
+	return;
+      }
+
+      hash = (hash + 1) % list->num_buckets;
+    }
+
+    list->buckets[hash] = ent;
+  } else
+    list->buckets[ent->hash] = ent;
+}
+
 static uint32_t
 allocate_block (struct pdb_context *ctx)
 {

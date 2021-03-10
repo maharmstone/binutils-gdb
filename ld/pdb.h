@@ -140,6 +140,19 @@ struct dbi_stream_header {
 
 static_assert(sizeof(struct dbi_stream_header) == 0x40, "dbi_stream_header has incorrect size");
 
+struct pdb_rollover_hash_entry {
+  uint32_t hash;
+  uint32_t offset;
+  uint32_t index;
+  size_t length;
+  uint8_t data[0];
+};
+
+struct pdb_rollover_hash_list {
+  unsigned int num_buckets;
+  struct pdb_rollover_hash_entry **buckets;
+};
+
 // pdb.c
 void create_pdb_file(bfd *abfd, const char *pdb_path, const unsigned char *guid);
 struct pdb_stream *add_stream (struct pdb_context *ctx);
