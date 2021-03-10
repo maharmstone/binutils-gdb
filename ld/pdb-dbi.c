@@ -456,6 +456,33 @@ add_procref (struct pdb_hash_list *list, uint32_t offset, uint16_t module,
 }
 
 static void
+add_data32 (struct pdb_hash_list *list, uint32_t type, uint32_t off,
+	    uint16_t seg, const char *name, bool global)
+{
+  size_t name_len = strlen(name);
+  struct pdb_hash_entry *ent;
+  uint8_t *datasym32;
+
+  // payload type is DATASYM32 in cvdump
+
+  ent = xmalloc(offsetof(struct pdb_hash_entry, data) + 15 + name_len);
+  datasym32 = ent->data;
+
+  ent->hash = calc_hash((const uint8_t*)name, name_len);
+  ent->length = 15 + name_len;
+
+  bfd_putl16(ent->length, datasym32); // length
+  bfd_putl16(global ? S_GDATA32 : S_LDATA32, datasym32 + 2); // type
+  bfd_putl32(type, datasym32 + 4); // type
+  bfd_putl32(off, datasym32 + 8); // offset
+  bfd_putl16(seg, datasym32 + 12); // segment
+
+  memcpy(datasym32 + 14, name, name_len + 1);
+
+  add_hash_entry(list, ent);
+}
+
+static void
 handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num,
 			       struct pdb_hash_list *globals)
 {
@@ -483,6 +510,26 @@ handle_module_codeview_entries(uint8_t *data, size_t length, uint16_t module_num
 	add_procref (globals, addr, module_num, name,
 		     cv_type == S_GPROC32 || cv_type == S_GPROC32_ID);
 
+	break;
+      }
+
+      case S_LDATA32:
+      case S_GDATA32:
+      {
+	uint32_t off, type;
+	uint16_t seg;
+	const char *name;
+
+	// DATASYM32 in cvdump
+
+	off = bfd_getl32(data + 8);
+	seg = bfd_getl32(data + 12);
+
+	type = bfd_getl32(data + 4);
+
+	name = (const char*)(data + 14);
+
+	add_data32 (globals, type, off, seg, name, cv_type == S_GDATA32);
 	break;
       }
     }

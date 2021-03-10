@@ -38,6 +38,8 @@
 
 #define CV_DEBUG_S_SYMBOLS		0xf1
 
+#define S_LDATA32			0x110c
+#define S_GDATA32			0x110d
 #define S_PUB32				0x110e
 #define S_LPROC32			0x110f
 #define S_GPROC32			0x1110
