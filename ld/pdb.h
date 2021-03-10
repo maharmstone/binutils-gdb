@@ -58,6 +58,7 @@
 #define S_LPROC32_DPC_ID		0x1156
 #define LF_ARGLIST			0x1201
 #define LF_FIELDLIST			0x1203
+#define LF_BITFIELD			0x1205
 #define LF_INDEX			0x1404
 #define LF_ENUMERATE			0x1502
 #define LF_CLASS			0x1504
@@ -440,6 +441,12 @@ struct pdb_subsection_lines {
 struct pdb_modifier { // lfModifier in cvdump
   uint16_t type;
   uint16_t modifier;
+};
+
+struct pdb_bitfield { // lfBitfield in cvdump
+  uint16_t underlying_type;
+  uint8_t length;
+  uint8_t position;
 };
 
 struct pdb_named_stream_entry {

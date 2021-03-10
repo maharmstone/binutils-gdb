@@ -320,6 +320,51 @@ find_type_struct (struct pdb_type **types, struct pdb_type **last_type,
   return t->index;
 }
 
+static uint16_t
+find_type_bitfield (struct pdb_type **types, struct pdb_type **last_type,
+		    uint16_t underlying_type, uint8_t length, uint8_t position)
+{
+  struct pdb_type *t = *types;
+  struct pdb_bitfield *bf;
+
+  while (t) {
+    if (t->cv_type == LF_BITFIELD) {
+      bf = (struct pdb_bitfield*)t->data;
+
+      if (bf->underlying_type == underlying_type && bf->length == length &&
+	  bf->position == position) {
+	return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + sizeof(struct pdb_bitfield));
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_BITFIELD;
+
+  bf = (struct pdb_bitfield*)t->data;
+
+  bf->underlying_type = underlying_type;
+  bf->length = length;
+  bf->position = position;
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static bool
 compare_fieldlists (struct pdb_fieldlist_entry *ent1, struct pdb_fieldlist_entry *ent2)
 {
@@ -910,6 +955,26 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_BITFIELD:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t underlying_type, bitfield_type;
+	uint8_t length, position;
+
+	underlying_type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	length = *ptr2; ptr2++;
+	position = *ptr2;
+
+	if (underlying_type >= FIRST_TYPE_INDEX && underlying_type < FIRST_TYPE_INDEX + num_entries)
+	  underlying_type = type_list[underlying_type - FIRST_TYPE_INDEX];
+
+	bitfield_type = find_type_bitfield(types, last_type, underlying_type, length, position);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = bitfield_type;
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1151,6 +1216,10 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 	break;
       }
+
+      case LF_BITFIELD:
+	len += 12;
+      break;
 
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
@@ -1476,6 +1545,20 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	  *ptr = 0xf1;
 	  ptr++;
 	}
+
+	break;
+      }
+
+      case LF_BITFIELD: {
+	struct pdb_bitfield *bf = (struct pdb_bitfield *)t->data;
+
+	bfd_putl16 (10, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_BITFIELD, ptr); ptr += sizeof(uint16_t);
+	bfd_putl32 (bf->underlying_type, ptr); ptr += sizeof(uint32_t);
+	*ptr = bf->length; ptr++;
+	*ptr = bf->position; ptr++;
+	*ptr = 0xf2; ptr++; // alignment
+	*ptr = 0xf1; ptr++; // alignment
 
 	break;
       }
