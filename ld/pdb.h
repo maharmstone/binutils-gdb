@@ -329,6 +329,16 @@ struct codeview_property { // CV_prop_t in cvdump
   };
 };
 
+struct pdb_struct { // lfClass in cvdump
+  uint16_t count;
+  struct codeview_property property;
+  uint16_t field;
+  uint16_t derived;
+  uint16_t vshape;
+  uint16_t size;
+  char name[1];
+};
+
 struct pdb_pointer { // lfPointer in cvdump
   uint16_t type;
   uint32_t attr;

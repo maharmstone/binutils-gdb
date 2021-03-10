@@ -264,6 +264,62 @@ find_type_proc (struct pdb_type **types, struct pdb_type **last_type, uint16_t r
   return t->index;
 }
 
+static uint16_t
+find_type_struct (struct pdb_type **types, struct pdb_type **last_type,
+		  uint16_t cv_type, uint16_t count, uint16_t prop,
+		  uint16_t field, uint16_t derived, uint16_t vshape,
+		  uint16_t size, const char *name)
+{
+  struct pdb_type *t = *types;
+  struct pdb_struct *str;
+  size_t name_len;
+
+  while (t) {
+    if (t->cv_type == cv_type) {
+      str = (struct pdb_struct*)t->data;
+
+      if (str->count == count && str->property.value == prop &&
+	  str->field == field && str->derived == derived &&
+	  str->vshape == vshape && str->size == size &&
+	  !strcmp(str->name, name)) {
+	return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  name_len = strlen(name);
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + offsetof(struct pdb_struct, name) +
+				name_len + 1);
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = cv_type;
+
+  str = (struct pdb_struct*)t->data;
+
+  str->count = count;
+  str->property.value = prop;
+  str->field = field;
+  str->derived = derived;
+  str->vshape = vshape;
+  str->size = size;
+  memcpy(str->name, name, name_len + 1);
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static bool
 compare_fieldlists (struct pdb_fieldlist_entry *ent1, struct pdb_fieldlist_entry *ent2)
 {
@@ -821,6 +877,39 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 	break;
       }
 
+      case LF_STRUCTURE:
+      case LF_CLASS:
+      {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t count, prop, field, derived, vshape, size, struct_type;
+
+	count = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	prop = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	field = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	derived = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	vshape = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+
+	ptr2 += 6; // six unknown bytes
+
+	size = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+
+	if (field >= FIRST_TYPE_INDEX && field < FIRST_TYPE_INDEX + num_entries)
+	  field = type_list[field - FIRST_TYPE_INDEX];
+
+	if (derived >= FIRST_TYPE_INDEX && derived < FIRST_TYPE_INDEX + num_entries)
+	  derived = type_list[derived - FIRST_TYPE_INDEX];
+
+	if (vshape >= FIRST_TYPE_INDEX && vshape < FIRST_TYPE_INDEX + num_entries)
+	  vshape = type_list[vshape - FIRST_TYPE_INDEX];
+
+	struct_type = find_type_struct(types, last_type, cv_type, count, prop, field,
+				       derived, vshape, size, (char*)ptr2);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = struct_type;
+
+	break;
+      }
+
       default:
 	einfo(_("%F%P: Unhandled CodeView type %u\n"), cv_type);
     }
@@ -1046,6 +1135,19 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 
 	  ent = ent->next;
 	}
+
+	break;
+      }
+
+      case LF_STRUCTURE:
+      case LF_CLASS:
+      {
+	struct pdb_struct *str = (struct pdb_struct *)t->data;
+
+	len += 23 + strlen(str->name);
+
+	if (len % 4 != 0)
+	  len += 4 - (len % 4);
 
 	break;
       }
@@ -1325,6 +1427,54 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	  }
 
 	  ent = ent->next;
+	}
+
+	break;
+      }
+
+      case LF_STRUCTURE:
+      case LF_CLASS:
+      {
+	struct pdb_struct *str = (struct pdb_struct *)t->data;
+	size_t name_len = strlen(str->name);
+	uint16_t item_len;
+	uint8_t align;
+
+	item_len = 23 + name_len;
+
+	align = 4 - (item_len % 4);
+
+	if (align != 4)
+	  item_len += align;
+
+	bfd_putl16 (item_len - 2, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (t->cv_type, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (str->count, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (str->property.value, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (str->field, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (str->derived, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (str->vshape, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (0, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (0, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (0, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (str->size, ptr); ptr += sizeof(uint16_t);
+
+	memcpy(ptr, str->name, name_len + 1);
+	ptr += name_len + 1;
+
+	if (align != 4) {
+	  if (align == 3) {
+	    *ptr = 0xf3;
+	    ptr++;
+	  }
+
+	  if (align >= 2) {
+	    *ptr = 0xf2;
+	    ptr++;
+	  }
+
+	  *ptr = 0xf1;
+	  ptr++;
 	}
 
 	break;
