@@ -264,6 +264,115 @@ find_type_proc (struct pdb_type **types, struct pdb_type **last_type, uint16_t r
   return t->index;
 }
 
+static bool
+compare_fieldlists (struct pdb_fieldlist_entry *ent1, struct pdb_fieldlist_entry *ent2)
+{
+  while (true) {
+    if (!ent1 && !ent2)
+      return true;
+
+    if ((ent1 && !ent2) || (!ent1 && ent2))
+      return false;
+
+    if (ent1->cv_type != ent2->cv_type)
+      return false;
+
+    switch (ent1->cv_type) {
+      case LF_MEMBER: {
+	struct pdb_member *memb1 = (struct pdb_member *)ent1;
+	struct pdb_member *memb2 = (struct pdb_member *)ent2;
+
+	if (memb1->fld_attr != memb2->fld_attr)
+	  return false;
+
+	if (memb1->type != memb2->type)
+	  return false;
+
+	if (memb1->offset != memb2->offset)
+	  return false;
+
+	if (strcmp(memb1->name, memb2->name))
+	  return false;
+
+	break;
+      }
+
+      case LF_ENUMERATE: {
+	struct pdb_enumerate *en1 = (struct pdb_enumerate *)ent1;
+	struct pdb_enumerate *en2 = (struct pdb_enumerate *)ent2;
+
+	if (en1->fld_attr != en2->fld_attr)
+	  return false;
+
+	if (en1->value != en2->value)
+	  return false;
+
+	if (strcmp(en1->name, en2->name))
+	  return false;
+
+	break;
+      }
+
+      case LF_INDEX: {
+	struct pdb_index *ind1 = (struct pdb_index *)ent1;
+	struct pdb_index *ind2 = (struct pdb_index *)ent2;
+
+	if (ind1->type != ind2->type)
+	  return false;
+
+	break;
+      }
+    }
+
+    ent1 = ent1->next;
+    ent2 = ent2->next;
+  }
+}
+
+static uint16_t
+find_type_fieldlist (struct pdb_type **types, struct pdb_type **last_type, struct pdb_fieldlist_entry *first,
+		     bool *moved)
+{
+  struct pdb_type *t = *types;
+  struct pdb_fieldlist *fl;
+
+  while (t) {
+    if (t->cv_type == LF_FIELDLIST) {
+      fl = (struct pdb_fieldlist*)t->data;
+
+      if (compare_fieldlists (fl->first, first)) {
+	*moved = false;
+	return t->index;
+      }
+    }
+
+    t = t->next;
+  }
+
+  t = (struct pdb_type*)xmalloc(offsetof(struct pdb_type, data) + sizeof(struct pdb_fieldlist));
+
+  t->next = NULL;
+  t->index = type_index;
+  t->cv_type = LF_FIELDLIST;
+
+  fl = (struct pdb_fieldlist*)t->data;
+
+  fl->first = first;
+  *moved = true;
+
+  if (*last_type)
+    (*last_type)->next = t;
+
+  *last_type = t;
+
+  if (!*types)
+    *types = t;
+
+  type_index++;
+
+  return t->index;
+}
+
 static void
 load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_type)
 {
@@ -423,6 +532,291 @@ load_module_types (bfd *in_bfd, struct pdb_type **types, struct pdb_type **last_
 				   attributes, num_args, arg_list);
 
 	type_list[mod_type_index - FIRST_TYPE_INDEX] = proc_type;
+
+	break;
+      }
+
+      case LF_FIELDLIST: {
+	uint8_t *ptr2 = ptr + sizeof(uint16_t);
+	uint16_t left, fl_type;
+	struct pdb_fieldlist_entry *first = NULL, *prev = NULL;
+	bool moved;
+
+	left = cv_length - sizeof(uint16_t);
+
+	while (left >= sizeof(uint16_t)) {
+	  uint16_t cv_type2 = bfd_getl16(ptr2);
+
+	  ptr2 += sizeof(uint16_t);
+	  left -= sizeof(uint16_t);
+
+	  switch (cv_type2) {
+	    case LF_MEMBER: {
+	      uint16_t fld_attr, type, offset;
+	      size_t name_len;
+	      struct pdb_member *memb;
+	      uint8_t align;
+
+	      if (left < 8) {
+		left = 0;
+		break;
+	      }
+
+	      left -= 8;
+
+	      fld_attr = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	      type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	      offset = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+
+	      if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+		type = type_list[type - FIRST_TYPE_INDEX];
+
+	      name_len = strlen((char*)ptr2);
+
+	      if (left < name_len + 1) {
+		left = 0;
+		break;
+	      }
+
+	      memb = (struct pdb_member *)xmalloc(offsetof(struct pdb_member, name) + name_len + 1);
+
+	      memb->header.cv_type = cv_type2;
+	      memb->header.next = NULL;
+	      memb->fld_attr = fld_attr;
+	      memb->type = type;
+	      memb->offset = offset;
+	      memcpy(memb->name, ptr2, name_len + 1);
+
+	      if (!first)
+		first = &memb->header;
+
+	      if (prev)
+		prev->next = &memb->header;
+
+	      prev = &memb->header;
+
+	      ptr2 += name_len + 1;
+	      left -= name_len + 1;
+
+	      align = (name_len + 3) % 4;
+
+	      if (align != 0) {
+		if (left < 4 - align)
+		  left = 0;
+		else {
+		  left -= 4 - align;
+		  ptr2 += 4 - align;
+		}
+	      }
+
+	      break;
+	    }
+
+	    case LF_ENUMERATE: {
+	      uint16_t fld_attr;
+	      size_t name_len;
+	      int64_t value;
+	      struct pdb_enumerate *en;
+	      uint8_t align;
+
+	      if (left < 4) {
+		left = 0;
+		break;
+	      }
+
+	      left -= 4;
+
+	      fld_attr = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+	      value = bfd_getl16(ptr2); ptr2 += sizeof(uint16_t);
+
+	      align = 7;
+
+	      if (value >= 0x8000) {
+		switch (value) {
+		  case LF_CHAR:
+		    if (left < sizeof(int8_t))
+		      break;
+
+		    value = (int8_t)*ptr2;
+		    ptr2++;
+		    align++;
+		    left--;
+		  break;
+
+		  case LF_SHORT:
+		    if (left < sizeof(int16_t)) {
+		      left = 0;
+		      break;
+		    }
+
+		    value = (int16_t)bfd_getl16(ptr2);
+		    ptr2 += sizeof(int16_t);
+		    align += sizeof(int16_t);
+		    left -= sizeof(int16_t);
+		  break;
+
+		  case LF_USHORT:
+		    if (left < sizeof(uint16_t)) {
+		      left = 0;
+		      break;
+		    }
+
+		    value = (uint16_t)bfd_getl16(ptr2);
+		    ptr2 += sizeof(uint16_t);
+		    align += sizeof(uint16_t);
+		    left -= sizeof(uint16_t);
+		  break;
+
+		  case LF_LONG:
+		    if (left < sizeof(int32_t)) {
+		      left = 0;
+		      break;
+		    }
+
+		    value = (int32_t)bfd_getl32(ptr2);
+		    ptr2 += sizeof(int32_t);
+		    align += sizeof(int32_t);
+		    left -= sizeof(int32_t);
+		  break;
+
+		  case LF_ULONG:
+		    if (left < sizeof(uint32_t)) {
+		      left = 0;
+		      break;
+		    }
+
+		    value = (uint32_t)bfd_getl32(ptr2);
+		    ptr2 += sizeof(uint32_t);
+		    align += sizeof(uint32_t);
+		    left -= sizeof(uint32_t);
+		  break;
+
+		  case LF_QUADWORD:
+		    if (left < sizeof(int64_t)) {
+		      left = 0;
+		      break;
+		    }
+
+		    value = (int64_t)bfd_getl64(ptr2);
+		    ptr2 += sizeof(int64_t);
+		    align += sizeof(int64_t);
+		    left -= sizeof(int64_t);
+		  break;
+
+		  case LF_UQUADWORD:
+		    if (left < sizeof(uint64_t)) {
+		      left = 0;
+		      break;
+		    }
+
+		    value = (uint64_t)bfd_getl64(ptr2);
+		    ptr2 += sizeof(uint64_t);
+		    align += sizeof(uint64_t);
+		    left -= sizeof(uint64_t);
+		  break;
+
+		  default:
+		    einfo (_("%F%P: unhandled CodeView subtype %u\n"), value);
+		}
+	      }
+
+	      if (left == 0)
+		break;
+
+	      name_len = strlen((char*)ptr2);
+
+	      if (left < name_len + 1) {
+		left = 0;
+		break;
+	      }
+
+	      en = (struct pdb_enumerate *)xmalloc(offsetof(struct pdb_enumerate, name) + name_len + 1);
+
+	      en->header.cv_type = cv_type2;
+	      en->header.next = NULL;
+	      en->fld_attr = fld_attr;
+	      en->value = value;
+	      memcpy(en->name, ptr2, name_len + 1);
+
+	      if (!first)
+		first = &en->header;
+
+	      if (prev)
+		prev->next = &en->header;
+
+	      prev = &en->header;
+
+	      ptr2 += name_len + 1;
+	      left -= name_len + 1;
+
+	      align += name_len;
+	      align %= 4;
+
+	      if (align != 0) {
+		if (left < 4 - align)
+		  left = 0;
+		else {
+		  left -= 4 - align;
+		  ptr2 += 4 - align;
+		}
+	      }
+
+	      break;
+	    }
+
+	    case LF_INDEX: {
+	      uint16_t type;
+	      struct pdb_index *ind;
+
+	      if (left < 6) {
+		left = 0;
+		break;
+	      }
+
+	      left -= 6;
+
+	      ptr2 += sizeof(uint16_t); // skip padding
+	      type = bfd_getl16(ptr2); ptr2 += sizeof(uint32_t);
+	      ptr2 += sizeof(uint16_t); // skip padding
+
+	      if (type >= FIRST_TYPE_INDEX && type < FIRST_TYPE_INDEX + num_entries)
+		type = type_list[type - FIRST_TYPE_INDEX];
+
+	      ind = (struct pdb_index *)xmalloc(sizeof(struct pdb_index));
+
+	      ind->header.cv_type = cv_type2;
+	      ind->header.next = NULL;
+	      ind->type = type;
+
+	      if (!first)
+		first = &ind->header;
+
+	      if (prev)
+		prev->next = &ind->header;
+
+	      prev = &ind->header;
+
+	      break;
+	    }
+
+	    default:
+	      einfo (_("%F%P: unhandled CodeView subtype %u\n"), cv_type2);
+	  }
+	}
+
+	fl_type = find_type_fieldlist(types, last_type, first, &moved);
+
+	type_list[mod_type_index - FIRST_TYPE_INDEX] = fl_type;
+
+	if (!moved) {
+	  while (first) {
+	    struct pdb_fieldlist_entry *n = first->next;
+
+	    free(first);
+
+	    first = n;
+	  }
+	}
 
 	break;
       }
@@ -598,6 +992,64 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	len += 16;
       break;
 
+      case LF_FIELDLIST: {
+	struct pdb_fieldlist *fl = (struct pdb_fieldlist *)t->data;
+	struct pdb_fieldlist_entry *ent = fl->first;
+
+	len += 4;
+
+	while (ent) {
+	  switch (ent->cv_type) {
+	    case LF_MEMBER: {
+	      struct pdb_member *memb = (struct pdb_member *)ent;
+	      size_t memb_len = 11 + strlen(memb->name);
+
+	      len += memb_len;
+
+	      if (memb_len % 4 != 0)
+		len += 4 - (memb_len % 4);
+
+	      break;
+	    }
+
+	    case LF_ENUMERATE: {
+	      struct pdb_enumerate *en = (struct pdb_enumerate *)ent;
+	      size_t en_len = 7 + strlen(en->name);
+
+	      if (en->value < 0 || en->value >= 0x8000) {
+		if (en->value >= -0x7f && en->value < 0) // LF_CHAR
+		  en_len++;
+		else if (en->value >= -0x7fff && en->value <= 0x7fff) // LF_SHORT
+		  en_len += sizeof(uint16_t);
+		else if (en->value >= 0 && en->value <= 0xffff) // LF_USHORT
+		  en_len += sizeof(uint16_t);
+		else if (en->value >= -0x7fffffff && en->value <= 0x7fffffff) // LF_LONG
+		  en_len += sizeof(uint32_t);
+		else if (en->value >= 0 && en->value <= 0xffffffff) // LF_ULONG
+		  en_len += sizeof(uint32_t);
+		else // LF_QUADWORD or LF_UQUADWORD
+		  en_len += sizeof(uint64_t);
+	      }
+
+	      len += en_len;
+
+	      if (en_len % 4 != 0)
+		len += 4 - (en_len % 4);
+
+	      break;
+	    }
+
+	    case LF_INDEX:
+	      len += 8;
+	      break;
+	  }
+
+	  ent = ent->next;
+	}
+
+	break;
+      }
+
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
     }
@@ -682,6 +1134,202 @@ create_type_stream (struct pdb_context *ctx, struct pdb_stream *stream,
 	break;
       }
 
+      case LF_FIELDLIST: {
+	struct pdb_fieldlist *fl = (struct pdb_fieldlist *)t->data;
+	struct pdb_fieldlist_entry *ent = (struct pdb_fieldlist_entry *)fl->first;
+	unsigned int fl_len = 0;
+
+	while (ent) {
+	  switch (ent->cv_type) {
+	    case LF_MEMBER: {
+	      struct pdb_member *memb = (struct pdb_member *)ent;
+
+	      fl_len += 11 + strlen(memb->name);
+
+	      if (fl_len % 4 != 0)
+		fl_len += 4 - (fl_len % 4);
+
+	      break;
+	    }
+
+	    case LF_ENUMERATE: {
+	      struct pdb_enumerate *en = (struct pdb_enumerate *)ent;
+
+	      fl_len += 7 + strlen(en->name);
+
+	      if (en->value < 0 || en->value >= 0x8000) {
+		if (en->value >= -0x7f && en->value < 0) // LF_CHAR
+		  fl_len++;
+		else if (en->value >= -0x7fff && en->value <= 0x7fff) // LF_SHORT
+		  fl_len += sizeof(uint16_t);
+		else if (en->value >= 0 && en->value <= 0xffff) // LF_USHORT
+		  fl_len += sizeof(uint16_t);
+		else if (en->value >= -0x7fffffff && en->value <= 0x7fffffff) // LF_LONG
+		  fl_len += sizeof(uint32_t);
+		else if (en->value >= 0 && en->value <= 0xffffffff) // LF_ULONG
+		  fl_len += sizeof(uint32_t);
+		else // LF_QUADWORD or LF_UQUADWORD
+		  fl_len += sizeof(uint64_t);
+	      }
+
+	      if (fl_len % 4 != 0)
+		fl_len += 4 - (fl_len % 4);
+
+	      break;
+	    }
+
+	    case LF_INDEX:
+	      fl_len += 8;
+	      break;
+	  }
+
+	  ent = ent->next;
+	}
+
+	bfd_putl16 (fl_len + 2, ptr); ptr += sizeof(uint16_t);
+	bfd_putl16 (LF_FIELDLIST, ptr); ptr += sizeof(uint16_t);
+
+	ent = (struct pdb_fieldlist_entry *)fl->first;
+
+	while (ent) {
+	  switch (ent->cv_type) {
+	    case LF_MEMBER: {
+	      struct pdb_member *memb = (struct pdb_member *)ent;
+	      size_t name_len = strlen (memb->name);
+	      uint8_t align;
+
+	      bfd_putl16 (ent->cv_type, ptr); ptr += sizeof(uint16_t);
+	      bfd_putl16 (memb->fld_attr, ptr); ptr += sizeof(uint16_t);
+	      bfd_putl32 (memb->type, ptr); ptr += sizeof(uint32_t);
+	      bfd_putl16 (memb->offset, ptr); ptr += sizeof(uint16_t);
+
+	      memcpy (ptr, memb->name, name_len + 1); ptr += name_len + 1;
+
+	      align = 4 - ((name_len + 3) % 4);
+
+	      if (align != 4) {
+		if (align == 3) {
+		  *ptr = 0xf3;
+		  ptr++;
+		}
+
+		if (align >= 2) {
+		  *ptr = 0xf2;
+		  ptr++;
+		}
+
+		*ptr = 0xf1;
+		ptr++;
+	      }
+
+	      break;
+	    }
+
+	    case LF_ENUMERATE: {
+	      struct pdb_enumerate *en = (struct pdb_enumerate *)ent;
+	      size_t name_len = strlen (en->name);
+	      uint8_t align;
+
+	      bfd_putl16 (ent->cv_type, ptr); ptr += sizeof(uint16_t);
+	      bfd_putl16 (en->fld_attr, ptr); ptr += sizeof(uint16_t);
+
+	      align = 3;
+
+	      if (en->value >= 0 && en->value < 0x8000) {
+		bfd_putl16 (en->value, ptr);
+		ptr += sizeof(uint16_t);
+	      } else if (en->value >= -0x7f && en->value < 0) {
+		bfd_putl16 (LF_CHAR, ptr);
+		ptr += sizeof(uint16_t);
+
+		*ptr = (int8_t)en->value;
+		ptr++;
+		align++;
+	      } else if (en->value >= -0x7fff && en->value <= 0x7fff) {
+		bfd_putl16 (LF_SHORT, ptr);
+		ptr += sizeof(uint16_t);
+
+		bfd_putl16 ((int16_t)en->value, ptr);
+		ptr += sizeof(int16_t);
+		align += sizeof(int16_t);
+	      } else if (en->value >= 0 && en->value <= 0xffff) {
+		bfd_putl16 (LF_USHORT, ptr);
+		ptr += sizeof(uint16_t);
+
+		bfd_putl16 ((uint16_t)en->value, ptr);
+		ptr += sizeof(uint16_t);
+		align += sizeof(uint16_t);
+	      } else if (en->value >= -0x7fffffff && en->value <= 0x7fffffff) {
+		bfd_putl16 (LF_LONG, ptr);
+		ptr += sizeof(uint16_t);
+
+		bfd_putl32 ((int32_t)en->value, ptr);
+		ptr += sizeof(int32_t);
+		align += sizeof(int32_t);
+	      } else if (en->value >= 0 && en->value <= 0xffffffff) {
+		bfd_putl16 (LF_ULONG, ptr);
+		ptr += sizeof(uint16_t);
+
+		bfd_putl32 ((uint32_t)en->value, ptr);
+		ptr += sizeof(uint32_t);
+		align += sizeof(uint32_t);
+	      } else if (en->value < 0) {
+		bfd_putl16 (LF_QUADWORD, ptr);
+		ptr += sizeof(uint16_t);
+
+		bfd_putl64 ((int64_t)en->value, ptr);
+		ptr += sizeof(int64_t);
+		align += sizeof(int64_t);
+	      } else {
+		bfd_putl16 (LF_UQUADWORD, ptr);
+		ptr += sizeof(uint16_t);
+
+		bfd_putl64 ((uint64_t)en->value, ptr);
+		ptr += sizeof(uint64_t);
+		align += sizeof(uint64_t);
+	      }
+
+	      memcpy (ptr, en->name, name_len + 1); ptr += name_len + 1;
+
+	      align += name_len;
+
+	      align = 4 - (align % 4);
+
+	      if (align != 4) {
+		if (align == 3) {
+		  *ptr = 0xf3;
+		  ptr++;
+		}
+
+		if (align >= 2) {
+		  *ptr = 0xf2;
+		  ptr++;
+		}
+
+		*ptr = 0xf1;
+		ptr++;
+	      }
+
+	      break;
+	    }
+
+	    case LF_INDEX: {
+	      struct pdb_index *ind = (struct pdb_index *)ent;
+
+	      bfd_putl16 (ent->cv_type, ptr); ptr += sizeof(uint16_t);
+	      bfd_putl16 (0, ptr); ptr += sizeof(uint16_t);
+	      bfd_putl32 (ind->type, ptr); ptr += sizeof(uint32_t);
+
+	      break;
+	    }
+	  }
+
+	  ent = ent->next;
+	}
+
+	break;
+      }
+
       default:
 	einfo(_("%P: Unhandled CodeView type %u\n"), t->cv_type);
     }
@@ -734,6 +1382,18 @@ create_tpi_stream (struct pdb_context *ctx, struct pdb_stream *tpi_stream,
 
   while (types) {
     struct pdb_type *n = types->next;
+
+    if (types->cv_type == LF_FIELDLIST) {
+      struct pdb_fieldlist *fl = (struct pdb_fieldlist *)types->data;
+
+      while (fl->first) {
+	struct pdb_fieldlist_entry *n2 = fl->first->next;
+
+	free (fl->first);
+
+	fl->first = n2;
+      }
+    }
 
     free(types);
 
