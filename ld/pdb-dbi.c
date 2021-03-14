@@ -487,7 +487,7 @@ add_procref (struct pdb_hash_list *list, uint32_t offset, uint16_t module,
   struct pdb_hash_entry *ent;
   uint8_t *refsym32;
 
-  // payload type is REFSYM32 in cvdump
+  // payload type is REFSYM2 in cvdump
 
   ent = xmalloc(offsetof(struct pdb_hash_entry, data) + 15 + name_len);
   refsym32 = ent->data;
