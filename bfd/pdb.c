@@ -2,6 +2,10 @@
 #include "bfd.h"
 #include "libbfd.h"
 
+#define PDB_MAGIC "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\0\0"
+
+static bfd_cleanup pdb_check_format (bfd *abfd);
+
 const bfd_target pdb_vec =
 {
   "pdb",
@@ -24,7 +28,7 @@ const bfd_target pdb_vec =
 
   {				/* bfd_check_format */
     _bfd_dummy_target,
-    _bfd_dummy_target,
+    pdb_check_format,
     _bfd_dummy_target,
     _bfd_dummy_target
   },
@@ -55,3 +59,27 @@ const bfd_target pdb_vec =
 
   NULL
 };
+
+static bfd_cleanup
+pdb_check_format (bfd *abfd)
+{
+  int ret;
+  char magic[sizeof(PDB_MAGIC) - 1];
+
+  ret = bfd_bread (magic, sizeof(magic), abfd);
+  if (ret != sizeof(magic))
+  {
+    bfd_set_error (bfd_error_wrong_format);
+    return NULL;
+  }
+
+  if (memcmp(magic, PDB_MAGIC, sizeof(magic)))
+  {
+    bfd_set_error (bfd_error_wrong_format);
+    return NULL;
+  }
+
+  // FIXME - load data etc.
+
+  return _bfd_no_cleanup;
+}
