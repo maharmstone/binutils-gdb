@@ -144,7 +144,7 @@ static const char *print_symbol_loading = print_symbol_loading_full;
 /* See symfile.h.  */
 
 bool auto_solib_add = true;
-
+
 
 /* Return non-zero if symbol-loading messages should be printed.
    FROM_TTY is the standard from_tty argument to gdb commands.
@@ -1782,7 +1782,7 @@ find_sym_fns (bfd *abfd)
   error (_("I'm sorry, Dave, I can't do that.  Symbol format `%s' unknown."),
 	 bfd_get_target (abfd));
 }
-
+
 
 /* This function runs the load command of our current target.  */
 
@@ -2329,7 +2329,7 @@ add_symbol_file_command (const char *args, int from_tty)
      frameless.  */
   reinit_frame_cache ();
 }
-
+
 
 /* This function removes a symbol file that was added via add-symbol-file.  */
 
@@ -2630,7 +2630,7 @@ reread_symbols (void)
       gdb::observers::executable_changed.notify ();
     }
 }
-
+
 
 struct filename_language
 {
@@ -2748,7 +2748,7 @@ deduce_language_from_filename (const char *filename)
 
   return language_unknown;
 }
-
+
 /* Allocate and initialize a new symbol table.
    CUST is from the result of allocate_compunit_symtab.  */
 
@@ -2843,7 +2843,7 @@ add_compunit_symtab_to_objfile (struct compunit_symtab *cu)
   cu->next = cu->objfile->compunit_symtabs;
   cu->objfile->compunit_symtabs = cu;
 }
-
+
 
 /* Reset all data structures in gdb which may contain references to
    symbol table data.  */
@@ -2871,7 +2871,7 @@ clear_symtab_users (symfile_add_flags add_flags)
   if ((add_flags & SYMFILE_DEFER_BP_RESET) == 0)
     breakpoint_re_set ();
 }
-
+
 /* OVERLAYS:
    The following code implements an abstraction for debugging overlay sections.
 
@@ -3514,7 +3514,7 @@ simple_overlay_update (struct obj_section *osect)
 	  error (_("Error reading inferior's overlay table: couldn't "
 		   "find `_ovly_table' array\n"
 		   "in inferior.  Use `overlay manual' mode."));
-	
+
 	if (cache_ovly_table_base == BMSYMBOL_VALUE_ADDRESS (minsym))
 	  /* Then go ahead and try to look up this single section in
 	     the cache.  */

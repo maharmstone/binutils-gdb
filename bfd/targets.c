@@ -838,6 +838,7 @@ extern const bfd_target nios2_elf32_le_vec;
 extern const bfd_target ns32k_aout_pc532mach_vec;
 extern const bfd_target ns32k_aout_pc532nbsd_vec;
 extern const bfd_target or1k_elf32_vec;
+extern const bfd_target pdb_vec;
 extern const bfd_target pdp11_aout_vec;
 extern const bfd_target pef_vec;
 extern const bfd_target pef_xlib_vec;
@@ -1224,6 +1225,8 @@ static const bfd_target * const _bfd_target_vector[] =
 
 	&or1k_elf32_vec,
 
+	&pdb_vec,
+
 	&pdp11_aout_vec,
 
 	&pef_vec,
@@ -1450,7 +1453,7 @@ const bfd_target *const *const bfd_associated_vector = _bfd_associated_vector;
    names of the matching targets in an array.  This variable is the maximum
    number of entries that the array could possibly need.  */
 const size_t _bfd_target_vector_entries = sizeof (_bfd_target_vector)/sizeof (*_bfd_target_vector);
-
+
 /* This array maps configuration triplets onto BFD vectors.  */
 
 struct targmatch
