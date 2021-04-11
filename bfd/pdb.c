@@ -9,7 +9,7 @@ static bfd_cleanup pdb_check_format (bfd *abfd);
 const bfd_target pdb_vec =
 {
   "pdb",
-  bfd_target_unknown_flavour,
+  bfd_target_pdb_flavour,
   BFD_ENDIAN_LITTLE,		/* target byte order */
   BFD_ENDIAN_LITTLE,		/* target headers byte order */
   0,				/* object flags */

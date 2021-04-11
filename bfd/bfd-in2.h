@@ -7320,6 +7320,7 @@ enum bfd_flavour
   bfd_target_evax_flavour,
   bfd_target_mmo_flavour,
   bfd_target_mach_o_flavour,
+  bfd_target_pdb_flavour,
   bfd_target_pef_flavour,
   bfd_target_pef_xlib_flavour,
   bfd_target_sym_flavour

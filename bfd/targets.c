@@ -168,6 +168,7 @@ DESCRIPTION
 .  bfd_target_evax_flavour,
 .  bfd_target_mmo_flavour,
 .  bfd_target_mach_o_flavour,
+.  bfd_target_pdb_flavour,
 .  bfd_target_pef_flavour,
 .  bfd_target_pef_xlib_flavour,
 .  bfd_target_sym_flavour
@@ -1807,6 +1808,7 @@ bfd_flavour_name (enum bfd_flavour flavour)
     case bfd_target_evax_flavour: return "Evax";
     case bfd_target_mmo_flavour: return "mmo";
     case bfd_target_mach_o_flavour: return "MACH_O";
+    case bfd_target_pdb_flavour: return "PDB";
     case bfd_target_pef_flavour: return "PEF";
     case bfd_target_pef_xlib_flavour: return "PEF_XLIB";
     case bfd_target_sym_flavour: return "SYM";
