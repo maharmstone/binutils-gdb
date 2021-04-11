@@ -20,7 +20,17 @@ pdb_symfile_offsets (struct objfile *objfile,
 static void
 pdb_symfile_read (struct objfile *objfile, symfile_add_flags symfile_flags)
 {
+  minimal_symbol_reader reader (objfile);
+
+  // FIXME - "No debugging symbols found" message
+
+  // FIXME - where do we verify that PDB matches image?
+  // FIXME - read global and public symbols from PDB file
+
+  reader.record_with_info ("test", 0/*FIXME - address*/, mst_text/*FIXME - type*/, 1/*FIXME - section*/);
   // FIXME
+
+  reader.install ();
 }
 
 static const struct sym_fns pdb_sym_fns =
