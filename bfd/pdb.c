@@ -108,12 +108,14 @@ pdb_check_format (bfd *abfd)
 static bfd_boolean
 pdb_archive_slurp_armap (bfd *abfd ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_slurp_armap\n");
   return FALSE;
 }
 
 static bfd_boolean
 pdb_archive_slurp_extended_name_table (bfd *abfd ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_slurp_extended_name_table\n");
   return FALSE;
 }
 
@@ -122,6 +124,7 @@ pdb_archive_construct_extended_name_table (bfd *abfd ATTRIBUTE_UNUSED, char **ta
 					   bfd_size_type *tablen ATTRIBUTE_UNUSED,
 					   const char **name ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_construct_extended_name_table\n");
   return FALSE;
 }
 
@@ -130,6 +133,7 @@ pdb_archive_truncate_arname (bfd *abfd ATTRIBUTE_UNUSED,
 			     const char *pathname ATTRIBUTE_UNUSED,
 			     char *arhdr ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_truncate_arname\n");
 }
 
 static bfd_boolean
@@ -139,41 +143,48 @@ pdb_archive_write_armap(bfd *arch ATTRIBUTE_UNUSED,
 			unsigned int orl_count ATTRIBUTE_UNUSED,
 			int stridx ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_write_armap\n");
   return TRUE;
 }
 
 static void *
 pdb_archive_read_ar_hdr (bfd *abfd ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_read_ar_hdr\n");
   return NULL;
 }
 
 static bfd_boolean
 pdb_archive_write_ar_hdr (bfd *archive, bfd *abfd ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_write_ar_hdr\n");
   return _bfd_bool_bfd_false_error (archive);
 }
 
 static bfd *
 pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_openr_next_archived_file\n");
   return (bfd *) _bfd_ptr_bfd_null_error (archive);
 }
 
 static bfd *
 pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_get_elt_at_index\n");
   return (bfd *) _bfd_ptr_bfd_null_error (abfd);
 }
 
 static int
 pdb_archive_generic_stat_arch_elt (bfd *abfd ATTRIBUTE_UNUSED, struct stat *buf ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_generic_stat_arch_elt\n");
   return -1;
 }
 
 static bfd_boolean
 pdb_archive_update_armap_timestamp (bfd *arch ATTRIBUTE_UNUSED)
 {
+  fprintf(stderr, "pdb_archive_update_armap_timestamp\n");
   return FALSE;
 }
