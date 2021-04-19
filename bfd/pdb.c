@@ -241,14 +241,14 @@ pdb_archive_update_armap_timestamp (bfd *arch ATTRIBUTE_UNUSED)
 }
 
 static file_ptr
-pdb_bread (struct bfd *abfd ATTRIBUTE_UNUSED, void *buf ATTRIBUTE_UNUSED,
-	   file_ptr nbytes ATTRIBUTE_UNUSED)
+pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes)
 {
-  fprintf(stderr, "pdb_bread\n");
+  fprintf(stderr, "pdb_bread(%p, %p, %lx)\n", abfd, buf, nbytes);
 
   // FIXME
+  memset(buf, 0, nbytes);
 
-  return -1;
+  return nbytes;
 }
 
 static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
