@@ -1,6 +1,7 @@
 #include "sysdep.h"
 #include "bfd.h"
 #include "libbfd.h"
+#include "libiberty.h"
 
 #define PDB_MAGIC "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\0\0"
 
@@ -164,8 +165,25 @@ pdb_archive_write_ar_hdr (bfd *archive, bfd *abfd ATTRIBUTE_UNUSED)
 static bfd *
 pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNUSED)
 {
-  fprintf(stderr, "pdb_archive_openr_next_archived_file\n");
-  return (bfd *) _bfd_ptr_bfd_null_error (archive);
+  bfd *out;
+
+  fprintf(stderr, "pdb_archive_openr_next_archived_file(%p, %p)\n", archive, last_file);
+
+  if (last_file) // FIXME
+  {
+    bfd_set_error (bfd_error_no_more_archived_files);
+    return NULL;
+  }
+
+//   out = bfd_create(NULL, NULL); // FIXME?
+
+//   return out;
+  out = _bfd_create_empty_archive_element_shell (archive); // FIXME?
+  out->filename = xstrdup("test");
+
+  fprintf(stderr, "returning %p\n", out);
+
+  return out;
 }
 
 static bfd *
@@ -176,10 +194,16 @@ pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED)
 }
 
 static int
-pdb_archive_generic_stat_arch_elt (bfd *abfd ATTRIBUTE_UNUSED, struct stat *buf ATTRIBUTE_UNUSED)
+pdb_archive_generic_stat_arch_elt (bfd *abfd, struct stat *buf)
 {
-  fprintf(stderr, "pdb_archive_generic_stat_arch_elt\n");
-  return -1;
+  fprintf(stderr, "pdb_archive_generic_stat_arch_elt (%p, %p)\n", abfd, buf);
+
+  memset(buf, 0, sizeof(struct stat));
+
+  buf->st_mode = 0644;
+  buf->st_size = 4;
+
+  return 0;
 }
 
 static bfd_boolean
