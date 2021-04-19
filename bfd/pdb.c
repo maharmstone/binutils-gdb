@@ -82,6 +82,31 @@ const bfd_target pdb_vec =
   NULL
 };
 
+static file_ptr pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes);
+static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
+			    const void *where ATTRIBUTE_UNUSED,
+			    file_ptr nbytes ATTRIBUTE_UNUSED);
+static file_ptr pdb_btell (struct bfd *abfd);
+static int pdb_bseek (struct bfd *abfd, file_ptr offset, int whence);
+static int pdb_bclose (struct bfd *abfd);
+static int pdb_bflush (struct bfd *abfd ATTRIBUTE_UNUSED);
+static int pdb_bstat (struct bfd *abfd, struct stat *sb);
+
+static void *pdb_bmmap (struct bfd *abfd ATTRIBUTE_UNUSED,
+			void *addr ATTRIBUTE_UNUSED,
+			bfd_size_type len ATTRIBUTE_UNUSED,
+			int prot ATTRIBUTE_UNUSED,
+			int flags ATTRIBUTE_UNUSED,
+			file_ptr offset ATTRIBUTE_UNUSED,
+			void **map_addr ATTRIBUTE_UNUSED,
+			bfd_size_type *map_len ATTRIBUTE_UNUSED);
+
+static const struct bfd_iovec pdb_iovec =
+{
+  &pdb_bread, &pdb_bwrite, &pdb_btell, &pdb_bseek,
+  &pdb_bclose, &pdb_bflush, &pdb_bstat, &pdb_bmmap
+};
+
 static bfd_cleanup
 pdb_check_format (bfd *abfd)
 {
@@ -178,8 +203,10 @@ pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNU
 //   out = bfd_create(NULL, NULL); // FIXME?
 
 //   return out;
-  out = _bfd_create_empty_archive_element_shell (archive); // FIXME?
+  out = _bfd_create_empty_archive_element_shell (archive); // FIXME - version that doesn't set my_archive?
   out->filename = xstrdup("test");
+  out->my_archive = NULL;
+  out->iovec = &pdb_iovec;
 
   fprintf(stderr, "returning %p\n", out);
 
@@ -211,4 +238,82 @@ pdb_archive_update_armap_timestamp (bfd *arch ATTRIBUTE_UNUSED)
 {
   fprintf(stderr, "pdb_archive_update_armap_timestamp\n");
   return FALSE;
+}
+
+static file_ptr
+pdb_bread (struct bfd *abfd ATTRIBUTE_UNUSED, void *buf ATTRIBUTE_UNUSED,
+	   file_ptr nbytes ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_bread\n");
+
+  // FIXME
+
+  return -1;
+}
+
+static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
+			    const void *where ATTRIBUTE_UNUSED,
+			    file_ptr nbytes ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_bwrite\n");
+
+  // FIXME
+
+  return -1;
+}
+
+static file_ptr pdb_btell (struct bfd *abfd ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_btell\n");
+
+  // FIXME
+
+  return 0;
+}
+
+static int pdb_bseek (struct bfd *abfd ATTRIBUTE_UNUSED, file_ptr offset ATTRIBUTE_UNUSED,
+		      int whence ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_bseek\n");
+
+  // FIXME
+
+  return -1;
+}
+
+static int pdb_bclose (struct bfd *abfd ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_bclose\n");
+
+  return 0;
+}
+
+static int pdb_bflush (struct bfd *abfd ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_bflush\n");
+
+  return 0;
+}
+
+static int pdb_bstat (struct bfd *abfd ATTRIBUTE_UNUSED, struct stat *sb ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_bstat\n");
+
+  // FIXME
+
+  return 0;
+}
+
+static void *pdb_bmmap (struct bfd *abfd ATTRIBUTE_UNUSED,
+			void *addr ATTRIBUTE_UNUSED,
+			bfd_size_type len ATTRIBUTE_UNUSED,
+			int prot ATTRIBUTE_UNUSED,
+			int flags ATTRIBUTE_UNUSED,
+			file_ptr offset ATTRIBUTE_UNUSED,
+			void **map_addr ATTRIBUTE_UNUSED,
+			bfd_size_type *map_len ATTRIBUTE_UNUSED)
+{
+  fprintf(stderr, "pdb_bmmap\n");
+
+  return (void *) -1;
 }
