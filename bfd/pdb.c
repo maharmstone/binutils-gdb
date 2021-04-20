@@ -2,31 +2,7 @@
 #include "bfd.h"
 #include "libbfd.h"
 #include "libiberty.h"
-
-#define PDB_MAGIC "Microsoft C/C++ MSF 7.00\r\n\x1a\x44\x53\0\0"
-
-static bfd_cleanup pdb_check_format (bfd *abfd);
-
-static bfd_boolean pdb_archive_slurp_armap (bfd *abfd);
-static bfd_boolean pdb_archive_slurp_extended_name_table (bfd *abfd);
-static bfd_boolean pdb_archive_construct_extended_name_table (bfd *abfd ATTRIBUTE_UNUSED,
-							      char **tabloc ATTRIBUTE_UNUSED,
-							      bfd_size_type *tablen ATTRIBUTE_UNUSED,
-							      const char **name ATTRIBUTE_UNUSED);
-static void pdb_archive_truncate_arname (bfd *abfd ATTRIBUTE_UNUSED,
-					 const char *pathname ATTRIBUTE_UNUSED,
-					 char *arhdr ATTRIBUTE_UNUSED);
-static bfd_boolean pdb_archive_write_armap(bfd *arch ATTRIBUTE_UNUSED,
-					   unsigned int elength ATTRIBUTE_UNUSED,
-					   struct orl *map ATTRIBUTE_UNUSED,
-					   unsigned int orl_count ATTRIBUTE_UNUSED,
-					   int stridx ATTRIBUTE_UNUSED);
-static void *pdb_archive_read_ar_hdr (bfd *abfd ATTRIBUTE_UNUSED);
-static bfd_boolean pdb_archive_write_ar_hdr (bfd *archive, bfd *abfd ATTRIBUTE_UNUSED);
-static bfd *pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNUSED);
-static bfd *pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED);
-static int pdb_archive_generic_stat_arch_elt (bfd *abfd ATTRIBUTE_UNUSED, struct stat *buf ATTRIBUTE_UNUSED);
-static bfd_boolean pdb_archive_update_armap_timestamp (bfd *arch ATTRIBUTE_UNUSED);
+#include "pdb.h"
 
 const bfd_target pdb_vec =
 {
@@ -82,25 +58,6 @@ const bfd_target pdb_vec =
   NULL
 };
 
-static file_ptr pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes);
-static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
-			    const void *where ATTRIBUTE_UNUSED,
-			    file_ptr nbytes ATTRIBUTE_UNUSED);
-static file_ptr pdb_btell (struct bfd *abfd);
-static int pdb_bseek (struct bfd *abfd, file_ptr offset, int whence);
-static int pdb_bclose (struct bfd *abfd);
-static int pdb_bflush (struct bfd *abfd ATTRIBUTE_UNUSED);
-static int pdb_bstat (struct bfd *abfd, struct stat *sb);
-
-static void *pdb_bmmap (struct bfd *abfd ATTRIBUTE_UNUSED,
-			void *addr ATTRIBUTE_UNUSED,
-			bfd_size_type len ATTRIBUTE_UNUSED,
-			int prot ATTRIBUTE_UNUSED,
-			int flags ATTRIBUTE_UNUSED,
-			file_ptr offset ATTRIBUTE_UNUSED,
-			void **map_addr ATTRIBUTE_UNUSED,
-			bfd_size_type *map_len ATTRIBUTE_UNUSED);
-
 static const struct bfd_iovec pdb_iovec =
 {
   &pdb_bread, &pdb_bwrite, &pdb_btell, &pdb_bseek,
@@ -111,24 +68,43 @@ static bfd_cleanup
 pdb_check_format (bfd *abfd)
 {
   int ret;
-  char magic[sizeof(PDB_MAGIC) - 1];
+  struct pdb_superblock super;
+  struct pdb_data_struct *data;
 
-  ret = bfd_bread (magic, sizeof(magic), abfd);
-  if (ret != sizeof(magic))
+  ret = bfd_bread (&super, sizeof(super), abfd);
+  if (ret != sizeof(super))
   {
     bfd_set_error (bfd_error_wrong_format);
     return NULL;
   }
 
-  if (memcmp(magic, PDB_MAGIC, sizeof(magic)))
+  if (memcmp(super.magic, PDB_MAGIC, sizeof(super.magic)))
   {
     bfd_set_error (bfd_error_wrong_format);
     return NULL;
   }
+
+  data = (struct pdb_data_struct *) bfd_zalloc (abfd, sizeof (*data));
+  if (!data)
+    return NULL;
+
+  data->block_size = bfd_getl32(&super.block_size);
+  data->free_block_map = bfd_getl32(&super.free_block_map);
+  data->num_blocks = bfd_getl32(&super.num_blocks);
+  data->num_directory_bytes = bfd_getl32(&super.num_directory_bytes);
+  data->block_map_addr = bfd_getl32(&super.block_map_addr);
+
+  fprintf(stderr, "block_size = %x\n", data->block_size);
+  fprintf(stderr, "free_block_map = %x\n", data->free_block_map);
+  fprintf(stderr, "num_blocks = %x\n", data->num_blocks);
+  fprintf(stderr, "num_directory_bytes = %x\n", data->num_directory_bytes);
+  fprintf(stderr, "block_map_addr = %x\n", data->block_map_addr);
+
+  bfd_pdb_get_data(abfd) = data;
 
   // FIXME - load data etc.
 
-  return _bfd_no_cleanup;
+  return _bfd_no_cleanup; // FIXME - free?
 }
 
 static bfd_boolean

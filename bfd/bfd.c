@@ -350,6 +350,7 @@ CODE_FRAGMENT
 .      struct bfd_pef_data_struct *pef_data;
 .      struct bfd_pef_xlib_data_struct *pef_xlib_data;
 .      struct bfd_sym_data_struct *sym_data;
+.      struct pdb_data_struct *pdb_data;
 .      void *any;
 .    }
 .  tdata;
@@ -610,13 +611,13 @@ CODE_FRAGMENT
 #define EXIT_FAILURE 1
 #endif
 
-
+
 /* provide storage for subsystem, stack and heap data which may have been
    passed in on the command line.  Ld puts this data into a bfd_link_info
    struct which ultimately gets passed in to the bfd.  When it arrives, copy
    it to the following struct so that the data will be available in coffcode.h
    where it is needed.  The typedef's used are defined in bfd.h */
-
+
 /*
 INODE
 Error reporting, Miscellaneous, typedef bfd, BFD front end
@@ -1518,7 +1519,7 @@ bfd_set_assert_handler (bfd_assert_handler_type pnew)
   _bfd_assert_handler = pnew;
   return pold;
 }
-
+
 /*
 INODE
 Miscellaneous, Memory Usage, Error reporting, BFD front end
