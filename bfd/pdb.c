@@ -70,6 +70,10 @@ pdb_check_format (bfd *abfd)
   int ret;
   struct pdb_superblock super;
   struct pdb_data_struct *data;
+  size_t dir_map_len;
+  uint32_t *dir_map;
+  void *directory, *dir_ptr;
+  size_t left;
 
   ret = bfd_bread (&super, sizeof(super), abfd);
   if (ret != sizeof(super))
@@ -100,9 +104,83 @@ pdb_check_format (bfd *abfd)
   fprintf(stderr, "num_directory_bytes = %x\n", data->num_directory_bytes);
   fprintf(stderr, "block_map_addr = %x\n", data->block_map_addr);
 
-  bfd_pdb_get_data(abfd) = data;
+  if (data->num_directory_bytes == 0)
+  {
+    bfd_release (abfd, data);
+    bfd_set_error (bfd_error_malformed_archive);
+    return NULL;
+  }
 
-  // FIXME - load data etc.
+  // read list of directory blocks
+
+  if (bfd_seek (abfd, data->block_map_addr * data->block_size, SEEK_SET))
+  {
+    bfd_release (abfd, data);
+    return NULL;
+  }
+
+  dir_map_len = (data->num_directory_bytes + data->block_size - 1) / data->block_size;
+  dir_map = bfd_malloc (dir_map_len * sizeof(uint32_t));
+  if (!dir_map)
+  {
+    bfd_release (abfd, data);
+    return NULL;
+  }
+
+  if (bfd_bread (dir_map, dir_map_len * sizeof(uint32_t), abfd) != dir_map_len * sizeof(uint32_t))
+  {
+    free (dir_map);
+    bfd_release (abfd, data);
+    return NULL;
+  }
+
+  // read directory
+
+  directory = bfd_malloc(data->num_directory_bytes);
+  if (!directory)
+  {
+    free (dir_map);
+    bfd_release (abfd, data);
+    return NULL;
+  }
+
+  left = data->num_directory_bytes;
+  dir_ptr = directory;
+
+  for (unsigned int i = 0; i < dir_map_len; i++) {
+    uint32_t block = bfd_getl32(&dir_map[i]);
+    size_t to_read;
+
+    if (bfd_seek (abfd, block * data->block_size, SEEK_SET))
+    {
+      free (directory);
+      free (dir_map);
+      bfd_release (abfd, data);
+      return NULL;
+    }
+
+    to_read = left < data->block_size ? left : data->block_size;
+
+    if (bfd_bread (dir_ptr, to_read, abfd) != to_read)
+    {
+      free (directory);
+      free (dir_map);
+      bfd_release (abfd, data);
+      return NULL;
+    }
+
+    if (to_read <= data->block_size)
+      break;
+
+    dir_ptr = (uint8_t*)dir_ptr + data->block_size;
+    left -= to_read;
+  }
+
+  free (dir_map);
+
+  // FIXME - parse directory
+
+  bfd_pdb_get_data(abfd) = data;
 
   return _bfd_no_cleanup; // FIXME - free?
 }
