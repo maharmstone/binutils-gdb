@@ -23,7 +23,6 @@ static void *pdb_bmmap (struct bfd *abfd, void *addr,
 			int flags, file_ptr offset,
 			void **map_addr, bfd_size_type *map_len);
 
-
 struct pdb_superblock
 {
   char magic[sizeof(PDB_MAGIC)];

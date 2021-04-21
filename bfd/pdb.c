@@ -344,8 +344,14 @@ pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes)
   file_ptr left;
   uint32_t block;
 
+  if (el_data->pos > el_data->size)
+    return 0;
+
   if (el_data->pos + nbytes > el_data->size)
     nbytes = el_data->size - el_data->pos;
+
+  if (nbytes == 0)
+    return 0;
 
   left = nbytes;
   block = el_data->pos / data->block_size;
@@ -392,14 +398,25 @@ static file_ptr pdb_btell (struct bfd *abfd ATTRIBUTE_UNUSED)
   return el_data->pos;
 }
 
-static int pdb_bseek (struct bfd *abfd ATTRIBUTE_UNUSED, file_ptr offset ATTRIBUTE_UNUSED,
-		      int whence ATTRIBUTE_UNUSED)
+static int pdb_bseek (struct bfd *abfd, file_ptr offset, int whence)
 {
-  fprintf(stderr, "pdb_bseek\n");
+  struct pdb_data_struct *el_data = bfd_pdb_get_data(abfd);
 
-  // FIXME
+  switch (whence)
+  {
+    case SEEK_SET:
+      el_data->pos = offset;
+    break;
 
-  return -1;
+    case SEEK_CUR:
+      el_data->pos += offset;
+    break;
+
+    default:
+      return -1;
+  }
+
+  return 0;
 }
 
 static int pdb_bclose (struct bfd *abfd ATTRIBUTE_UNUSED)
