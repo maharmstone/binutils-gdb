@@ -189,13 +189,12 @@ pdb_check_format (bfd *abfd)
     return NULL;
   }
 
-  free (directory);
-
   if (data->num_streams > 0)
   {
     data->streams = bfd_zalloc (abfd, sizeof (*data));
     if (!data->streams)
     {
+      free (directory);
       bfd_release (abfd, data);
       return NULL;
     }
@@ -208,6 +207,8 @@ pdb_check_format (bfd *abfd)
       data->streams[i] = _bfd_new_bfd();
       if (!data->streams[i])
       {
+	free (directory);
+
 	for (unsigned int j = 0; j < i; j++)
 	{
 	  bfd_close_all_done (data->streams[j]);
@@ -217,7 +218,7 @@ pdb_check_format (bfd *abfd)
 	return NULL;
       }
 
-      sprintf(filename, "%u", i);
+      sprintf(filename, "%u", i); // FIXME - include base file name?
 
       data->streams[i]->xvec = &pdb_vec;
       data->streams[i]->direction = read_direction;
@@ -231,6 +232,8 @@ pdb_check_format (bfd *abfd)
       el_data = (struct pdb_data_struct *) bfd_zalloc (data->streams[i], sizeof (*el_data));
       if (!el_data)
       {
+	free (directory);
+
 	for (unsigned int j = 0; j <= i; j++)
 	{
 	  bfd_close_all_done (data->streams[j]);
@@ -241,11 +244,13 @@ pdb_check_format (bfd *abfd)
       }
 
       el_data->index = i;
-      // FIXME - size
+      el_data->size = bfd_getl32((uint32_t*)directory + i + 1);
 
       bfd_pdb_get_data(data->streams[i]) = el_data;
     }
   }
+
+  free (directory);
 
   bfd_pdb_get_data(abfd) = data;
 
@@ -342,12 +347,14 @@ pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED)
 static int
 pdb_archive_generic_stat_arch_elt (bfd *abfd, struct stat *buf)
 {
+  struct pdb_data_struct *el_data = bfd_pdb_get_data(abfd);
+
   fprintf(stderr, "pdb_archive_generic_stat_arch_elt (%p, %p)\n", abfd, buf);
 
   memset(buf, 0, sizeof(struct stat));
 
   buf->st_mode = 0644;
-  buf->st_size = 4;
+  buf->st_size = el_data->size;
 
   return 0;
 }
