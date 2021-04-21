@@ -412,13 +412,9 @@ static int pdb_bflush (struct bfd *abfd ATTRIBUTE_UNUSED)
   return 0;
 }
 
-static int pdb_bstat (struct bfd *abfd ATTRIBUTE_UNUSED, struct stat *sb ATTRIBUTE_UNUSED)
+static int pdb_bstat (struct bfd *abfd, struct stat *sb)
 {
-  fprintf(stderr, "pdb_bstat\n");
-
-  // FIXME
-
-  return 0;
+  return pdb_archive_generic_stat_arch_elt (abfd, sb);
 }
 
 static void *pdb_bmmap (struct bfd *abfd ATTRIBUTE_UNUSED,
