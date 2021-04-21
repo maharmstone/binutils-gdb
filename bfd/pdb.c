@@ -107,12 +107,6 @@ pdb_check_format (bfd *abfd)
   data->num_directory_bytes = bfd_getl32(&super.num_directory_bytes);
   data->block_map_addr = bfd_getl32(&super.block_map_addr);
 
-  fprintf(stderr, "block_size = %x\n", data->block_size);
-  fprintf(stderr, "free_block_map = %x\n", data->free_block_map);
-  fprintf(stderr, "num_blocks = %x\n", data->num_blocks);
-  fprintf(stderr, "num_directory_bytes = %x\n", data->num_directory_bytes);
-  fprintf(stderr, "block_map_addr = %x\n", data->block_map_addr);
-
   if (data->num_directory_bytes < sizeof(uint32_t))
   {
     bfd_release (abfd, data);
@@ -188,7 +182,6 @@ pdb_check_format (bfd *abfd)
   free (dir_map);
 
   data->num_streams = bfd_getl32(directory);
-  fprintf(stderr, "num_streams = %x\n", data->num_streams);
 
   if (data->num_directory_bytes < sizeof(uint32_t) + (data->num_streams * sizeof(uint32_t)))
   {
@@ -302,8 +295,6 @@ pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNU
   struct pdb_data_struct *data = bfd_pdb_get_data(archive);
   struct pdb_data_struct *el_data = last_file ? bfd_pdb_get_data(last_file) : NULL;
 
-  fprintf(stderr, "pdb_archive_openr_next_archived_file(%p, %p)\n", archive, last_file);
-
   if (!last_file)
     return data->streams[0];
   else
@@ -311,11 +302,9 @@ pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNU
     if (el_data->index >= data->num_streams - 1)
     {
       bfd_set_error (bfd_error_no_more_archived_files);
-      fprintf(stderr, "returning NULL\n");
       return NULL;
     }
 
-    fprintf(stderr, "returning entry %u\n", el_data->index + 1);
     return data->streams[el_data->index + 1];
   }
 }
@@ -324,8 +313,6 @@ static bfd *
 pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index)
 {
   struct pdb_data_struct *data = bfd_pdb_get_data(abfd);
-
-  fprintf(stderr, "pdb_archive_get_elt_at_index\n");
 
   if (sym_index >= data->num_streams)
   {
@@ -340,8 +327,6 @@ static int
 pdb_archive_generic_stat_arch_elt (bfd *abfd, struct stat *buf)
 {
   struct pdb_data_struct *el_data = bfd_pdb_get_data(abfd);
-
-  fprintf(stderr, "pdb_archive_generic_stat_arch_elt (%p, %p)\n", abfd, buf);
 
   memset(buf, 0, sizeof(struct stat));
 
@@ -358,8 +343,6 @@ pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes)
   struct pdb_data_struct *el_data = bfd_pdb_get_data(abfd);
   file_ptr left;
   uint32_t block;
-
-  fprintf(stderr, "pdb_bread(%p, %p, %lx)\n", abfd, buf, nbytes);
 
   if (el_data->pos + nbytes > el_data->size)
     nbytes = el_data->size - el_data->pos;
@@ -399,18 +382,12 @@ static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
 			    const void *where ATTRIBUTE_UNUSED,
 			    file_ptr nbytes ATTRIBUTE_UNUSED)
 {
-  fprintf(stderr, "pdb_bwrite\n");
-
-  // FIXME
-
   return -1;
 }
 
 static file_ptr pdb_btell (struct bfd *abfd ATTRIBUTE_UNUSED)
 {
   struct pdb_data_struct *el_data = bfd_pdb_get_data(abfd);
-
-  fprintf(stderr, "pdb_btell\n");
 
   return el_data->pos;
 }
@@ -427,15 +404,11 @@ static int pdb_bseek (struct bfd *abfd ATTRIBUTE_UNUSED, file_ptr offset ATTRIBU
 
 static int pdb_bclose (struct bfd *abfd ATTRIBUTE_UNUSED)
 {
-  fprintf(stderr, "pdb_bclose\n");
-
   return 0;
 }
 
 static int pdb_bflush (struct bfd *abfd ATTRIBUTE_UNUSED)
 {
-  fprintf(stderr, "pdb_bflush\n");
-
   return 0;
 }
 
@@ -457,7 +430,5 @@ static void *pdb_bmmap (struct bfd *abfd ATTRIBUTE_UNUSED,
 			void **map_addr ATTRIBUTE_UNUSED,
 			bfd_size_type *map_len ATTRIBUTE_UNUSED)
 {
-  fprintf(stderr, "pdb_bmmap\n");
-
   return (void *) -1;
 }
