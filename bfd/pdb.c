@@ -321,13 +321,19 @@ pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNU
 }
 
 static bfd *
-pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED)
+pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index)
 {
+  struct pdb_data_struct *data = bfd_pdb_get_data(abfd);
+
   fprintf(stderr, "pdb_archive_get_elt_at_index\n");
 
-  // FIXME
+  if (sym_index >= data->num_streams)
+  {
+    bfd_set_error (bfd_error_invalid_operation);
+    return NULL;
+  }
 
-  return (bfd *) _bfd_ptr_bfd_null_error (abfd);
+  return data->streams[sym_index];
 }
 
 static int

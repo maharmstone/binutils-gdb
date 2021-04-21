@@ -5,28 +5,23 @@
 
 static bfd_cleanup pdb_check_format (bfd *abfd);
 
-static bfd *pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNUSED);
-static bfd *pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED);
-static int pdb_archive_generic_stat_arch_elt (bfd *abfd ATTRIBUTE_UNUSED, struct stat *buf ATTRIBUTE_UNUSED);
+static bfd *pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file);
+static bfd *pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index);
+static int pdb_archive_generic_stat_arch_elt (bfd *abfd, struct stat *buf);
 
 static file_ptr pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes);
-static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
-			    const void *where ATTRIBUTE_UNUSED,
-			    file_ptr nbytes ATTRIBUTE_UNUSED);
+static file_ptr pdb_bwrite (struct bfd *abfd, const void *where,
+			    file_ptr nbytes);
 static file_ptr pdb_btell (struct bfd *abfd);
 static int pdb_bseek (struct bfd *abfd, file_ptr offset, int whence);
 static int pdb_bclose (struct bfd *abfd);
-static int pdb_bflush (struct bfd *abfd ATTRIBUTE_UNUSED);
+static int pdb_bflush (struct bfd *abfd);
 static int pdb_bstat (struct bfd *abfd, struct stat *sb);
 
-static void *pdb_bmmap (struct bfd *abfd ATTRIBUTE_UNUSED,
-			void *addr ATTRIBUTE_UNUSED,
-			bfd_size_type len ATTRIBUTE_UNUSED,
-			int prot ATTRIBUTE_UNUSED,
-			int flags ATTRIBUTE_UNUSED,
-			file_ptr offset ATTRIBUTE_UNUSED,
-			void **map_addr ATTRIBUTE_UNUSED,
-			bfd_size_type *map_len ATTRIBUTE_UNUSED);
+static void *pdb_bmmap (struct bfd *abfd, void *addr,
+			bfd_size_type len, int prot,
+			int flags, file_ptr offset,
+			void **map_addr, bfd_size_type *map_len);
 
 
 struct pdb_superblock
