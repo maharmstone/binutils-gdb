@@ -4,6 +4,15 @@
 #include "libiberty.h"
 #include "pdb.h"
 
+#define pdb_archive_slurp_armap _bfd_noarchive_slurp_armap
+#define pdb_archive_slurp_extended_name_table _bfd_noarchive_slurp_extended_name_table
+#define pdb_archive_construct_extended_name_table _bfd_noarchive_construct_extended_name_table
+#define pdb_archive_truncate_arname _bfd_noarchive_truncate_arname
+#define pdb_archive_write_armap _bfd_noarchive_write_armap
+#define pdb_archive_read_ar_hdr _bfd_noarchive_read_ar_hdr
+#define pdb_archive_write_ar_hdr _bfd_noarchive_write_ar_hdr
+#define pdb_archive_update_armap_timestamp _bfd_noarchive_update_armap_timestamp
+
 const bfd_target pdb_vec =
 {
   "pdb",
@@ -257,62 +266,6 @@ pdb_check_format (bfd *abfd)
   return _bfd_no_cleanup; // FIXME - free?
 }
 
-static bfd_boolean
-pdb_archive_slurp_armap (bfd *abfd ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_slurp_armap\n");
-  return FALSE;
-}
-
-static bfd_boolean
-pdb_archive_slurp_extended_name_table (bfd *abfd ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_slurp_extended_name_table\n");
-  return FALSE;
-}
-
-static bfd_boolean
-pdb_archive_construct_extended_name_table (bfd *abfd ATTRIBUTE_UNUSED, char **tabloc ATTRIBUTE_UNUSED,
-					   bfd_size_type *tablen ATTRIBUTE_UNUSED,
-					   const char **name ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_construct_extended_name_table\n");
-  return FALSE;
-}
-
-static void
-pdb_archive_truncate_arname (bfd *abfd ATTRIBUTE_UNUSED,
-			     const char *pathname ATTRIBUTE_UNUSED,
-			     char *arhdr ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_truncate_arname\n");
-}
-
-static bfd_boolean
-pdb_archive_write_armap(bfd *arch ATTRIBUTE_UNUSED,
-			unsigned int elength ATTRIBUTE_UNUSED,
-			struct orl *map ATTRIBUTE_UNUSED,
-			unsigned int orl_count ATTRIBUTE_UNUSED,
-			int stridx ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_write_armap\n");
-  return TRUE;
-}
-
-static void *
-pdb_archive_read_ar_hdr (bfd *abfd ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_read_ar_hdr\n");
-  return NULL;
-}
-
-static bfd_boolean
-pdb_archive_write_ar_hdr (bfd *archive, bfd *abfd ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_write_ar_hdr\n");
-  return _bfd_bool_bfd_false_error (archive);
-}
-
 static bfd *
 pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNUSED)
 {
@@ -357,13 +310,6 @@ pdb_archive_generic_stat_arch_elt (bfd *abfd, struct stat *buf)
   buf->st_size = el_data->size;
 
   return 0;
-}
-
-static bfd_boolean
-pdb_archive_update_armap_timestamp (bfd *arch ATTRIBUTE_UNUSED)
-{
-  fprintf(stderr, "pdb_archive_update_armap_timestamp\n");
-  return FALSE;
 }
 
 static file_ptr

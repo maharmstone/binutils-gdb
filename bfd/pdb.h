@@ -5,26 +5,9 @@
 
 static bfd_cleanup pdb_check_format (bfd *abfd);
 
-static bfd_boolean pdb_archive_slurp_armap (bfd *abfd);
-static bfd_boolean pdb_archive_slurp_extended_name_table (bfd *abfd);
-static bfd_boolean pdb_archive_construct_extended_name_table (bfd *abfd ATTRIBUTE_UNUSED,
-							      char **tabloc ATTRIBUTE_UNUSED,
-							      bfd_size_type *tablen ATTRIBUTE_UNUSED,
-							      const char **name ATTRIBUTE_UNUSED);
-static void pdb_archive_truncate_arname (bfd *abfd ATTRIBUTE_UNUSED,
-					 const char *pathname ATTRIBUTE_UNUSED,
-					 char *arhdr ATTRIBUTE_UNUSED);
-static bfd_boolean pdb_archive_write_armap(bfd *arch ATTRIBUTE_UNUSED,
-					   unsigned int elength ATTRIBUTE_UNUSED,
-					   struct orl *map ATTRIBUTE_UNUSED,
-					   unsigned int orl_count ATTRIBUTE_UNUSED,
-					   int stridx ATTRIBUTE_UNUSED);
-static void *pdb_archive_read_ar_hdr (bfd *abfd ATTRIBUTE_UNUSED);
-static bfd_boolean pdb_archive_write_ar_hdr (bfd *archive, bfd *abfd ATTRIBUTE_UNUSED);
 static bfd *pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNUSED);
 static bfd *pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED);
 static int pdb_archive_generic_stat_arch_elt (bfd *abfd ATTRIBUTE_UNUSED, struct stat *buf ATTRIBUTE_UNUSED);
-static bfd_boolean pdb_archive_update_armap_timestamp (bfd *arch ATTRIBUTE_UNUSED);
 
 static file_ptr pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes);
 static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
