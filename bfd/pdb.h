@@ -51,6 +51,8 @@ struct pdb_data_struct
   bfd **streams;
   unsigned int index;
   uint32_t size;
+  file_ptr pos;
+  uint32_t *blocks;
 };
 
 #define bfd_pdb_get_data(abfd) ((abfd)->tdata.pdb_data)

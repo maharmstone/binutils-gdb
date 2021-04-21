@@ -200,6 +200,8 @@ pdb_check_format (bfd *abfd)
 
   if (data->num_streams > 0)
   {
+    uint32_t *ptr;
+
     data->streams = bfd_zalloc (abfd, sizeof (*data));
     if (!data->streams)
     {
@@ -208,10 +210,13 @@ pdb_check_format (bfd *abfd)
       return NULL;
     }
 
+    ptr = (uint32_t*)directory + 1 + data->num_streams;
+
     for (unsigned int i = 0; i < data->num_streams; i++)
     {
       struct pdb_data_struct *el_data;
       char filename[5];
+      uint32_t num_blocks;
 
       data->streams[i] = _bfd_new_bfd();
       if (!data->streams[i])
@@ -254,6 +259,31 @@ pdb_check_format (bfd *abfd)
 
       el_data->index = i;
       el_data->size = bfd_getl32((uint32_t*)directory + i + 1);
+
+      num_blocks = (el_data->size + data->block_size - 1) / data->block_size;
+
+      if (num_blocks > 0)
+      {
+	el_data->blocks = bfd_alloc (data->streams[i], num_blocks * sizeof(uint32_t));
+	if (!el_data->blocks)
+	{
+	  free (directory);
+
+	  for (unsigned int j = 0; j <= i; j++)
+	  {
+	    bfd_close_all_done (data->streams[j]);
+	  }
+
+	  bfd_release (abfd, data);
+	  return NULL;
+	}
+
+	for (unsigned int j = 0; j < num_blocks; j++)
+	{
+	  el_data->blocks[j] = bfd_getl32(ptr);
+	  ptr++;
+	}
+      }
 
       bfd_pdb_get_data(data->streams[i]) = el_data;
     }
@@ -318,10 +348,43 @@ pdb_archive_generic_stat_arch_elt (bfd *abfd, struct stat *buf)
 static file_ptr
 pdb_bread (struct bfd *abfd, void *buf, file_ptr nbytes)
 {
+  struct pdb_data_struct *data = bfd_pdb_get_data(abfd->archive_head);
+  struct pdb_data_struct *el_data = bfd_pdb_get_data(abfd);
+  file_ptr left;
+  uint32_t block;
+
   fprintf(stderr, "pdb_bread(%p, %p, %lx)\n", abfd, buf, nbytes);
 
-  // FIXME
-  memset(buf, 0, nbytes);
+  if (el_data->pos + nbytes > el_data->size)
+    nbytes = el_data->size - el_data->pos;
+
+  left = nbytes;
+  block = el_data->pos / data->block_size;
+
+  while (left > 0)
+  {
+    file_ptr to_read, ret;
+
+    if (el_data->pos % data->block_size)
+      to_read = data->block_size - (el_data->pos % data->block_size);
+    else
+      to_read = data->block_size;
+
+    if (to_read > left)
+      to_read = left;
+
+    if (bfd_seek (abfd->archive_head, el_data->blocks[block] * data->block_size, SEEK_SET))
+      return -1;
+
+    ret = bfd_bread (buf, to_read, abfd->archive_head);
+    if (ret < 0)
+      return ret;
+
+    el_data->pos += to_read;
+    left -= to_read;
+    buf = (uint8_t*)buf + to_read;
+    block++;
+  }
 
   return nbytes;
 }
@@ -339,11 +402,11 @@ static file_ptr pdb_bwrite (struct bfd *abfd ATTRIBUTE_UNUSED,
 
 static file_ptr pdb_btell (struct bfd *abfd ATTRIBUTE_UNUSED)
 {
+  struct pdb_data_struct *el_data = bfd_pdb_get_data(abfd);
+
   fprintf(stderr, "pdb_btell\n");
 
-  // FIXME
-
-  return 0;
+  return el_data->pos;
 }
 
 static int pdb_bseek (struct bfd *abfd ATTRIBUTE_UNUSED, file_ptr offset ATTRIBUTE_UNUSED,
