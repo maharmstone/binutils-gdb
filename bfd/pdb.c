@@ -294,6 +294,9 @@ static bfd *
 pdb_archive_get_elt_at_index (bfd *abfd, symindex sym_index ATTRIBUTE_UNUSED)
 {
   fprintf(stderr, "pdb_archive_get_elt_at_index\n");
+
+  // FIXME
+
   return (bfd *) _bfd_ptr_bfd_null_error (abfd);
 }
 
