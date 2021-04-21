@@ -225,7 +225,7 @@ pdb_check_format (bfd *abfd)
 	return NULL;
       }
 
-      sprintf(filename, "%u", i); // FIXME - include base file name?
+      sprintf(filename, "%u", i);
 
       data->streams[i]->xvec = &pdb_vec;
       data->streams[i]->direction = read_direction;
@@ -286,7 +286,7 @@ pdb_check_format (bfd *abfd)
 
   bfd_pdb_get_data(abfd) = data;
 
-  return _bfd_no_cleanup; // FIXME - free?
+  return _bfd_no_cleanup;
 }
 
 static bfd *
