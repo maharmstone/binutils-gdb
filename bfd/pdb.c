@@ -104,7 +104,7 @@ pdb_check_format (bfd *abfd)
   fprintf(stderr, "num_directory_bytes = %x\n", data->num_directory_bytes);
   fprintf(stderr, "block_map_addr = %x\n", data->block_map_addr);
 
-  if (data->num_directory_bytes == 0)
+  if (data->num_directory_bytes < sizeof(uint32_t))
   {
     bfd_release (abfd, data);
     bfd_set_error (bfd_error_malformed_archive);
@@ -178,7 +178,74 @@ pdb_check_format (bfd *abfd)
 
   free (dir_map);
 
-  // FIXME - parse directory
+  data->num_streams = bfd_getl32(directory);
+  fprintf(stderr, "num_streams = %x\n", data->num_streams);
+
+  if (data->num_directory_bytes < sizeof(uint32_t) + (data->num_streams * sizeof(uint32_t)))
+  {
+    free (directory);
+    bfd_release (abfd, data);
+    bfd_set_error (bfd_error_malformed_archive);
+    return NULL;
+  }
+
+  free (directory);
+
+  if (data->num_streams > 0)
+  {
+    data->streams = bfd_zalloc (abfd, sizeof (*data));
+    if (!data->streams)
+    {
+      bfd_release (abfd, data);
+      return NULL;
+    }
+
+    for (unsigned int i = 0; i < data->num_streams; i++)
+    {
+      struct pdb_data_struct *el_data;
+      char filename[5];
+
+      data->streams[i] = _bfd_new_bfd();
+      if (!data->streams[i])
+      {
+	for (unsigned int j = 0; j < i; j++)
+	{
+	  bfd_close_all_done (data->streams[j]);
+	}
+
+	bfd_release (abfd, data);
+	return NULL;
+      }
+
+      sprintf(filename, "%u", i);
+
+      data->streams[i]->xvec = &pdb_vec;
+      data->streams[i]->direction = read_direction;
+      data->streams[i]->target_defaulted = abfd->target_defaulted;
+      data->streams[i]->lto_output = abfd->lto_output;
+      data->streams[i]->no_export = abfd->no_export;
+      data->streams[i]->filename = xstrdup(filename);
+      data->streams[i]->iovec = &pdb_iovec;
+      data->streams[i]->archive_head = abfd;
+
+      el_data = (struct pdb_data_struct *) bfd_zalloc (data->streams[i], sizeof (*el_data));
+      if (!el_data)
+      {
+	for (unsigned int j = 0; j <= i; j++)
+	{
+	  bfd_close_all_done (data->streams[j]);
+	}
+
+	bfd_release (abfd, data);
+	return NULL;
+      }
+
+      el_data->index = i;
+      // FIXME - size
+
+      bfd_pdb_get_data(data->streams[i]) = el_data;
+    }
+  }
 
   bfd_pdb_get_data(abfd) = data;
 
@@ -244,27 +311,25 @@ pdb_archive_write_ar_hdr (bfd *archive, bfd *abfd ATTRIBUTE_UNUSED)
 static bfd *
 pdb_archive_openr_next_archived_file (bfd *archive, bfd *last_file ATTRIBUTE_UNUSED)
 {
-  bfd *out;
+  struct pdb_data_struct *data = bfd_pdb_get_data(archive);
+  struct pdb_data_struct *el_data = last_file ? bfd_pdb_get_data(last_file) : NULL;
 
   fprintf(stderr, "pdb_archive_openr_next_archived_file(%p, %p)\n", archive, last_file);
 
-  if (last_file) // FIXME
+  if (!last_file)
+    return data->streams[0];
+  else
   {
-    bfd_set_error (bfd_error_no_more_archived_files);
-    return NULL;
+    if (el_data->index >= data->num_streams - 1)
+    {
+      bfd_set_error (bfd_error_no_more_archived_files);
+      fprintf(stderr, "returning NULL\n");
+      return NULL;
+    }
+
+    fprintf(stderr, "returning entry %u\n", el_data->index + 1);
+    return data->streams[el_data->index + 1];
   }
-
-//   out = bfd_create(NULL, NULL); // FIXME?
-
-//   return out;
-  out = _bfd_create_empty_archive_element_shell (archive); // FIXME - version that doesn't set my_archive?
-  out->filename = xstrdup("test");
-  out->my_archive = NULL;
-  out->iovec = &pdb_iovec;
-
-  fprintf(stderr, "returning %p\n", out);
-
-  return out;
 }
 
 static bfd *

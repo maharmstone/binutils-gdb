@@ -64,6 +64,10 @@ struct pdb_data_struct
   uint32_t num_blocks;
   uint32_t num_directory_bytes;
   uint32_t block_map_addr;
+  uint32_t num_streams;
+  bfd **streams;
+  unsigned int index;
+  uint32_t size;
 };
 
 #define bfd_pdb_get_data(abfd) ((abfd)->tdata.pdb_data)
